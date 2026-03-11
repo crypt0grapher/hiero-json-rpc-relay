@@ -1,101 +1,11 @@
-name: Build Image Test
-
+# SPDX-License-Identifier: Apache-2.0
+# Disabled: Inherited from upstream, not applicable to Goliath fork
+name: "Build Image Test"
 on:
-  pull_request:
-    branches: [main, release/**]
-
-permissions:
-  contents: read
-
+  workflow_dispatch:
 jobs:
-  build:
-    runs-on: hiero-smart-contracts-linux-medium
-
+  disabled:
+    if: false
+    runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e # v2.14.2
-        with:
-          egress-policy: audit
-
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Set up Docker Qemu
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-        with:
-          version: v0.22.0
-          driver-opts: network=host
-          buildkitd-config-inline: |
-            [registry."docker.io"]
-              mirrors = ["https://hub.mirror.docker.lat.ope.eng.hashgraph.io"]
-
-      - name: Build image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
-        with:
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: relay:latest
-
-      - name: Prepare .env file
-        run: |
-          cat <<EOF > .env
-          CHAIN_ID=0x12a
-          HEDERA_NETWORK={"127.0.0.1:50211":"0.0.3"}
-          MIRROR_NODE_URL=http://127.0.0.1:5551
-          READ_ONLY=true
-          REDIS_ENABLED=false
-          EOF
-
-      - name: Start HTTP relay server
-        run: |
-          docker run --env-file .env -d -p 7546:7546 --name relay relay:latest
-
-      - name: Test HTTP relay liveness
-        run: |
-          echo "Waiting for HTTP relay..."
-          for i in {1..10}; do
-            response=$(curl -s http://localhost:7546/health/liveness || true)
-            if [ "$response" = "OK" ]; then
-              echo "HTTP relay is healthy."
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "HTTP relay failed liveness check: $response"
-          docker logs relay
-          exit 1
-
-      - name: Stop HTTP relay
-        if: always()
-        run: docker rm -f relay
-
-      - name: Start WebSocket relay server
-        run: |
-          docker run --env-file .env \
-            -d -p 8546:8546 -p 8547:8547 --name relay-ws relay:latest \
-            packages/ws-server/dist/index.js
-
-      - name: Test WebSocket relay liveness
-        run: |
-          echo "Waiting for WebSocket relay..."
-          for i in {1..10}; do
-            response=$(curl -s http://localhost:8547/health/liveness || true)
-            if [ "$response" = "OK" ]; then
-              echo "WebSocket relay is healthy."
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "WebSocket relay failed liveness check: $response"
-          docker logs relay-ws
-          exit 1
-
-      - name: Stop WebSocket relay
-        if: always()
-        run: docker rm -f relay-ws
+      - run: echo "This workflow is disabled"

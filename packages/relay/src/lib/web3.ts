@@ -19,7 +19,7 @@ export class Web3Impl implements Web3 {
    */
   @rpcMethod
   clientVersion(): string {
-    return 'relay/' + ConfigService.get('npm_package_version');
+    return 'goliath-relay/' + ConfigService.get('npm_package_version');
   }
 
   /**

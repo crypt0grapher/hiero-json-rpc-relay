@@ -298,7 +298,7 @@ describe('RPC Server', function () {
     });
 
     BaseTest.defaultResponseChecks(res);
-    expect(res.data.result).to.be.equal('relay/' + ConfigService.get('npm_package_version'));
+    expect(res.data.result).to.be.equal('goliath-relay/' + ConfigService.get('npm_package_version'));
   });
 
   it('should execute "web3_sha3"', async function () {

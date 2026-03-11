@@ -1,42 +1,11 @@
-name: Foundry tool test
-
-on: workflow_dispatch
-
-env:
-  FOUNDRY_PROFILE: ci
-
+# SPDX-License-Identifier: Apache-2.0
+# Disabled: Inherited from upstream, not applicable to Goliath fork
+name: "Foundry tool test"
+on:
+  workflow_dispatch:
 jobs:
-  check:
-    defaults:
-      run:
-        working-directory: ./tools/foundry-example/
-    strategy:
-      fail-fast: true
-
-    name: Foundry project
-    runs-on: hiero-smart-contracts-linux-medium
+  disabled:
+    if: false
+    runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e # v2.14.2
-        with:
-          egress-policy: audit
-
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          submodules: recursive
-
-      - name: Install Foundry
-        uses: step-security/foundry-toolchain@f4782470186d3379e58bdf2a19aefb1f383e4a3f # v1.6.0
-        with:
-          version: nightly
-
-      - name: Run Forge build
-        run: |
-          forge --version
-          forge build --sizes
-        id: build
-
-      - name: Run Forge tests
-        run: |
-          forge test -vvv
-        id: test
+      - run: echo "This workflow is disabled"

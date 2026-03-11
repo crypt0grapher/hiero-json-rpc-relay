@@ -1,101 +1,11 @@
-name: Charts
-
+# SPDX-License-Identifier: Apache-2.0
+# Disabled: Inherited from upstream, not applicable to Goliath fork
+name: "Charts"
 on:
-  pull_request:
-    branches: [ main, release/** ]
-  push:
-    branches: [ main, release/** ]
-    tags: [ v* ]
-
-concurrency:
-  group: pr-checks-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-
+  workflow_dispatch:
 jobs:
-  lint:
-    runs-on: hiero-smart-contracts-linux-medium
+  disabled:
+    if: false
+    runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e # v2.14.2
-        with:
-          egress-policy: audit
-
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.11"
-
-      - name: Setup Helm
-        uses: Azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
-
-      - name: Install ct
-        uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2.8.0
-
-      - name: Run lint
-        run: ct lint --config .github/ct.yaml --all
-
-  install:
-    runs-on: hiero-smart-contracts-linux-medium
-    steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e # v2.14.2
-        with:
-          egress-policy: audit
-
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-          submodules: 'false'
-
-      - name: Setup Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.11"
-
-      - name: Setup Helm
-        uses: Azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
-
-      - name: Setup kubectl
-        uses: Azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4.0.1
-
-      - name: Install k3d
-        run: curl --retry 3 -fsL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
-
-      - name: Create k3d cluster
-        run: k3d cluster create relay --agents 1 --timeout 5m --registry-create registry:0.0.0.0:5001 --image rancher/k3s:v1.25.9-k3s1
-        timeout-minutes: 3
-
-      - name: Set up Docker Qemu
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-        with:
-          version: v0.22.0
-          driver-opts: network=host
-          buildkitd-config-inline: |
-            [registry."docker.io"]
-              mirrors = ["https://hub.mirror.docker.lat.ope.eng.hashgraph.io"]
-
-      - name: Build and push images
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
-        with:
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: localhost:5001/${{ github.repository }}:test
-
-      - name: Install ct
-        uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2.8.0
-
-      - name: Install chart
-        run: ct install --helm-extra-args="--timeout 10m" --all
+      - run: echo "This workflow is disabled"

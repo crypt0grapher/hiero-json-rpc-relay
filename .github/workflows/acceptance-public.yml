@@ -1,59 +1,11 @@
-name: Acceptance Tests on Public Network
-
+# SPDX-License-Identifier: Apache-2.0
+# Disabled: Inherited from upstream, not applicable to Goliath fork
+name: "Acceptance Tests on Public Network"
 on:
   workflow_dispatch:
-    inputs:
-      operator_id:
-        description: 'The Account ID of the operator'
-        required: true
-        type: string
-      operator_key:
-        description: 'The ED25519 or ECDSA  DER encoded private key of the operator'
-        required: true
-        type: string
-      network:
-        description: 'The public network to run the tests against'
-        required: true
-        type: choice
-        options:
-          - mainnet
-          - testnet
-          - previewnet
-
 jobs:
-  release-tests:
-    name: Release Tests
-    uses: ./.github/workflows/acceptance-workflow.yml
-    with:
-      testfilter: release_light
-      envfile: ${{ inputs.network }}Acceptance.env
-      operator_id: ${{ inputs.operator_id }}
-    secrets:
-      operator_key: ${{ inputs.operator_key }}
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-  publish_results:
-    name: Publish Results
-    if: ${{ !cancelled() }}
-    needs:
-      - release-tests
-    runs-on: hiero-smart-contracts-linux-medium
+  disabled:
+    if: false
+    runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e # v2.14.2
-        with:
-          egress-policy: audit
-
-      - name: Download Test Reports
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
-        with:
-          pattern: Test Results (*)
-          merge-multiple: true
-
-      - name: Publish Test Report
-        uses: step-security/publish-unit-test-result-action@7dff603bf17ef13dee847147bef8d7cd1728b566 # v2.22.0
-        with:
-          check_name: Test Results
-          json_thousands_separator: ','
-          files: 'test-*.xml'
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: echo "This workflow is disabled"

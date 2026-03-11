@@ -1,29 +1,11 @@
-name: PR Label and Milestone Check
-
+# SPDX-License-Identifier: Apache-2.0
+# Disabled: Inherited from upstream, not applicable to Goliath fork
+name: "PR Label and Milestone Check"
 on:
-  pull_request:
-    types: [opened, edited, labeled, unlabeled, synchronize]
-
+  workflow_dispatch:
 jobs:
-  check_pr:
-    runs-on: hiero-smart-contracts-linux-medium
-
+  disabled:
+    if: false
+    runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@5ef0c079ce82195b2a36a210272d6b661572d83e # v2.14.2
-        with:
-          egress-policy: audit
-
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 #v6.2.0
-        with:
-          node-version: 22
-
-      - name: Check PR labels and milestones
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_PR_NUMBER: ${{ github.event.number }}
-        run: node .github/scripts/check-pr.js
+      - run: echo "This workflow is disabled"
