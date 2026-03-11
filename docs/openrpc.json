@@ -3,7 +3,7 @@
   "info": {
     "title": "Hedera JSON-RPC Specification",
     "description": "A specification of the implemented Ethereum JSON RPC APIs interface for Hedera clients and adheres to the Ethereum execution APIs schema.",
-    "version": "0.75.0-SNAPSHOT"
+    "version": "0.75.0"
   },
   "servers": [
     {
@@ -1423,6 +1423,21 @@
           }
         },
         "description": "An array of trace objects containing detailed information about all transactions in the block. For callTracer, each item is a call frame with transaction details. For prestateTracer, each item is an object mapping addresses to their account state."
+      }
+    },
+    {
+      "name": "debug_getBadBlocks",
+      "summary": "Returns an array of recent bad blocks (bad blocks are always an empty array [] due to Hedera specifics) that the client has seen on the network.",
+      "description": "![](https://raw.githubusercontent.com/hiero-ledger/hiero-json-rpc-relay/main/docs/images/http_label.png)",
+      "params": [],
+      "result": {
+        "name": "debug_getBadBlocks result",
+        "description": "Always returns an empty array",
+        "schema": {
+          "title": "empty array",
+          "type": "array",
+          "pattern": "^\\[\\s*\\]$"
+        }
       }
     },
     {

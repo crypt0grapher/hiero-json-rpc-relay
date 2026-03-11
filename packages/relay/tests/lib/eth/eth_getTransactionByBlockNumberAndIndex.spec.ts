@@ -23,6 +23,7 @@ import {
   CONTRACT_HASH_1,
   CONTRACT_RESULT_MOCK,
   CONTRACT_TIMESTAMP_1,
+  DEFAULT_AUTHORIZATION_LIST,
   DEFAULT_BLOCK,
   DEFAULT_BLOCKS_RES,
   DEFAULT_NETWORK_FEES,
@@ -300,6 +301,24 @@ describe('@ethGetTransactionByBlockNumberAndIndex using MirrorNode', async funct
       expect((result as Transaction1559).maxFeePerGas).to.equal('0xa54f4c3c00');
       expect((result as Transaction1559).maxPriorityFeePerGas).to.equal('0xa54f4c3c00');
     }
+  });
+
+  it('eth_getTransactionByBlockNumberAndIndex returns 7702 transaction for type 4', async function () {
+    const resultWith7702Transaction = structuredClone(defaultContractResults);
+    resultWith7702Transaction.results[0].type = 4;
+    resultWith7702Transaction.results[0]['authorization_list'] = DEFAULT_AUTHORIZATION_LIST;
+    restMock.onGet('blocks?limit=1&order=desc').reply(200, JSON.stringify(DEFAULT_BLOCKS_RES));
+    restMock
+      .onGet(contractResultsByNumberByIndexURL(DEFAULT_BLOCK.number, DEFAULT_BLOCK.count))
+      .reply(200, JSON.stringify(resultWith7702Transaction));
+
+    const result = await ethImpl.getTransactionByBlockNumberAndIndex(
+      'latest',
+      numberTo0x(DEFAULT_BLOCK.count),
+      requestDetails,
+    );
+    verifyAggregatedInfo(result);
+    expect(result).to.have.property('authorizationList').that.deep.equal(DEFAULT_AUTHORIZATION_LIST);
   });
 
   describe('synthetic transaction handling', function () {

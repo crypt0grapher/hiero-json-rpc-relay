@@ -231,6 +231,7 @@ const _CONFIG = {
       'BUSY',
       'CONSENSUS_GAS_EXHAUSTED',
       'INVALID_SOLIDITY_ADDRESS',
+      'MAX_GAS_LIMIT_EXCEEDED',
     ],
   },
   FEE_HISTORY_MAX_RESULTS: {
@@ -540,6 +541,16 @@ const _CONFIG = {
     defaultValue: false,
   },
   PAYMASTER_WHITELIST: {
+    type: 'strArray',
+    required: false,
+    defaultValue: [],
+  },
+  PAYMASTER_ACCOUNTS: {
+    type: 'strArray',
+    required: false,
+    defaultValue: [],
+  },
+  PAYMASTER_ACCOUNTS_WHITELISTS: {
     type: 'strArray',
     required: false,
     defaultValue: [],

@@ -18,7 +18,7 @@
 
 Implementation of an Ethereum JSON RPC APIs for Hedera Hashgraph. Utilises both Hedera Consensus Nodes and Mirror nodes
 to support RPC queries as defined in
-the [JSON RPC Specification](https://playground.open-rpc.org/?schemaUrl=https://raw.githubusercontent.com/hiero-ledger/hiero-json-rpc-relay/main/docs/openrpc.json&uiSchema%5BappBar%5D%5Bui:splitView%5D=false&uiSchema%5BappBar%5D%5Bui:input%5D=false&uiSchema%5BappBar%5D%5Bui:examplesDropdown%5D=false)
+the [JSON RPC Specification](https://playground.open-rpc.org/?schemaUrl=https://raw.githubusercontent.com/hiero-ledger/hiero-json-rpc-relay/release/0.75/docs/openrpc.json&uiSchema%5BappBar%5D%5Bui:splitView%5D=false&uiSchema%5BappBar%5D%5Bui:input%5D=false&uiSchema%5BappBar%5D%5Bui:examplesDropdown%5D=false)
 
 ## Building
 
@@ -26,9 +26,8 @@ the [JSON RPC Specification](https://playground.open-rpc.org/?schemaUrl=https://
 
 You must have installed
 
-- [node (version 20)](https://nodejs.org/en/about/)
+- [node (version 22)](https://nodejs.org/en/about/)
 - [npm](https://www.npmjs.com/)
-- [pnpm](https://pnpm.io/)
 - [Docker (if you want to use `docker compose up` to run the server)](https://docs.docker.com/engine/reference/commandline/docker/)
 
 We also recommend installing the "prettier" plugin in IntelliJ.
