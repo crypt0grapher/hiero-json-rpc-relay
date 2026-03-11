@@ -121,7 +121,7 @@ const _CONFIG = {
   CHAIN_ID: {
     type: 'string',
     required: true,
-    defaultValue: '0x327',
+    defaultValue: '0x147',
   },
   CLIENT_TRANSPORT_SECURITY: {
     type: 'boolean',

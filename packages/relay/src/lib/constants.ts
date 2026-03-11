@@ -118,7 +118,7 @@ export default {
     mainnet: 0x127,
     testnet: 0x128,
     previewnet: 0x129,
-    goliath: 0x327,
+    goliath: 0x147,
     goliath_testnet: 0x22c5,
   },
 
