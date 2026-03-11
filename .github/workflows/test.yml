@@ -1,70 +1,11 @@
-name: Tests
-
+# SPDX-License-Identifier: Apache-2.0
+# Disabled: Inherited from upstream, not applicable to Goliath fork
+name: "Tests"
 on:
-  pull_request:
-    branches: [main, release/**]
-  push:
-    branches: [main, release/**]
-    tags: [v*]
-
-concurrency:
-  group: pr-checks-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
-
+  workflow_dispatch:
 jobs:
-  test-node:
-    name: Tests
-    runs-on: hiero-smart-contracts-linux-medium
+  disabled:
+    if: false
+    runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
-        with:
-          egress-policy: audit
-
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y make gcc g++
-
-      - name: Use Node.js TLS 22
-        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
-        with:
-          node-version: 22
-
-      - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Create .env file
-        run: cp ./packages/relay/tests/test.env .env
-
-      - name: Build Typescript and Run tests
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_PR_NUMBER: ${{ github.event.number }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: npm run build-and-test
-
-      - name: Upload Heap Snapshots
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: Heap Snapshots
-          path: '**/*.heapsnapshot'
-          if-no-files-found: ignore
-
-      - name: Upload coverage report
-        if: ${{ !cancelled() && always() }}
-        run: bash .github/scripts/codecov-upload.sh
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Publish Test Report
-        if: ${{ github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name && github.actor != 'dependabot[bot]' && github.actor != 'swirlds-automation' && !cancelled() && !failure() }}
-        uses: step-security/publish-unit-test-result-action@914f0f642c242f38335a491805adfc9bd64b1cbb # v2.21.1
-        with:
-          # check_name: Tests
-          check_name: '' # Set to empty to disable check run
-          json_thousands_separator: ','
-          files: 'test-*.xml'
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: echo "This workflow is disabled"

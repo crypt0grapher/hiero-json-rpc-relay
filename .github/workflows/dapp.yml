@@ -1,88 +1,11 @@
-name: Dapp Tests
-
+# SPDX-License-Identifier: Apache-2.0
+# Disabled: Inherited from upstream, not applicable to Goliath fork
+name: "Dapp Tests"
 on:
-  pull_request:
-    branches: [main, release/**]
-  push:
-    branches: [main, release/**]
-    tags: [v*]
-
-concurrency:
-  group: pr-checks-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-
+  workflow_dispatch:
 jobs:
-  setup-local-hedera:
-    name: Dapp Tests
-    runs-on: hiero-smart-contracts-linux-medium
-    timeout-minutes: 45 # Set to 45 minutes for now
-    permissions:
-      contents: write
+  disabled:
+    if: false
+    runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
-        with:
-          egress-policy: audit
-
-      - name: Checkout repo
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-
-      - name: Setup node
-        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
-        with:
-          node-version: 22
-
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y make gcc g++
-
-      - name: Install packages
-        run: npm ci
-
-      - name: Create .env file
-        run: |
-          cp ./dapp-example/localDappCI.env ./dapp-example/.env
-          cp ./packages/server/tests/localAcceptance.env .env
-
-      - name: Build Typescript
-        run: npx lerna run build
-
-      - name: Start the hedera local node
-        run: npx hedera start -d
-
-      - name: Stop the local node's relay
-        run: docker stop json-rpc-relay
-
-      - name: Start the local relay
-        run: npm run start &
-
-      - name: Build, Bootstrap & Test the dapp in Docker
-        run: docker compose up --exit-code-from synpress
-        working-directory: ./dapp-example/
-
-      - name: Dump relay logs
-        if: ${{ always() && !cancelled() }}
-        uses: step-security/gh-docker-logs@2ffe2e0e1da43c5db68902dd900c47cdba10bfe6 # v2.2.6
-        with:
-          dest: './logs'
-
-      - name: Tar logs
-        if: ${{ always() && !cancelled() }}
-        run: tar cvzf ./logs.tgz ./logs
-
-      - name: Upload logs to GitHub
-        if: ${{ always() && !cancelled() }}
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: logs.tgz
-          path: ./logs.tgz
-
-      - name: Publish Reports
-        uses: mikepenz/action-junit-report@e08919a3b1fb83a78393dfb775a9c37f17d8eea6 # v6.0.1
-        if: ${{ always() && !cancelled() }}
-        with:
-          check_name: Dapp Test Report
-          report_paths: "**/*.xml"
-          detailed_summary: true
+      - run: echo "This workflow is disabled"

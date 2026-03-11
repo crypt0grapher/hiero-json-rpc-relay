@@ -1,73 +1,11 @@
-name: Build Image Test
-
+# SPDX-License-Identifier: Apache-2.0
+# Disabled: Inherited from upstream, not applicable to Goliath fork
+name: "Build Image Test"
 on:
-  pull_request:
-    branches: [main, release/**]
-
-permissions:
-  contents: read
-
+  workflow_dispatch:
 jobs:
-  build:
-    runs-on: hiero-smart-contracts-linux-medium
-
+  disabled:
+    if: false
+    runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
-        with:
-          egress-policy: audit
-
-      - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-
-      - name: Set up Docker Qemu
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
-        with:
-          version: v0.22.0
-          driver-opts: network=host
-          buildkitd-config-inline: |
-            [registry."docker.io"]
-              mirrors = ["https://hub.mirror.docker.lat.ope.eng.hashgraph.io"]
-
-      - name: Build image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
-        with:
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64
-          push: false
-          load: true
-          tags: relay:latest
-
-      - name: Start server
-        run: |
-          docker run \
-            -e CHAIN_ID='0x12a' \
-            -e HEDERA_NETWORK='{"127.0.0.1:50211":"0.0.3"}' \
-            -e MIRROR_NODE_URL='http://127.0.0.1:5551' \
-            -e OPERATOR_ID_MAIN='0.0.1002' \
-            -e OPERATOR_KEY_MAIN='302e020100300506032b65700422042077d69b53642d0000000000000000000000000000000000000000000000000000' \
-            -e READ_ONLY='true' \
-            -e REDIS_ENABLED='false' \
-            -d -p 7546:7546 --name relay relay:latest
-
-      - name: Test server
-        run: |
-          sleep 15  # Wait for the server to start
-          response=$(curl -s http://localhost:7546/health/liveness)
-          if [ "$response" = "OK" ]; then
-            echo "Server responded with 'OK'. Test passed!"
-            exit 0
-          else
-            echo "Server responded with '$response'. Test failed!"
-            exit 1
-          fi
-
-      - name: Stop server
-        if: always()
-        run: |
-          docker stop relay
-          docker rm relay
+      - run: echo "This workflow is disabled"

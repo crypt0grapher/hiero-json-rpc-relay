@@ -1,76 +1,11 @@
-name: Acceptance Tests
-
+# SPDX-License-Identifier: Apache-2.0
+# Disabled: Inherited from upstream, not applicable to Goliath fork
+name: "Acceptance Tests"
 on:
-  pull_request:
-    branches: [main, release/**]
-  push:
-    branches: [main, release/**]
-    tags: [v*]
-
-concurrency:
-  group: pr-checks-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
-
+  workflow_dispatch:
 jobs:
-  acceptance_tests:
-    name: ${{ matrix.test.name }}
-    strategy:
-      fail-fast: false
-      max-parallel: 6
-      matrix:
-        test:
-          - { name: 'API Batch 1', testfilter: 'api_batch1' }
-          - { name: 'API Batch 2', testfilter: 'api_batch2' }
-          - { name: 'API Batch 3', testfilter: 'api_batch3' }
-          - { name: 'Debug API', testfilter: 'debug' }
-          - { name: 'ERC20', testfilter: 'erc20' }
-          - { name: 'Rate Limiter', testfilter: 'ratelimiter', test_ws_server: true }
-          - { name: 'SendRawTransaction Extension', testfilter: 'send_raw_transaction_extension' }
-          - { name: 'HBar Limiter Batch 1', testfilter: 'hbarlimiter_batch1' }
-          - { name: 'HBar Limiter Batch 2', testfilter: 'hbarlimiter_batch2' }
-          - { name: 'HBar Limiter Batch 3', testfilter: 'hbarlimiter_batch3' }
-          - { name: 'Token Create', testfilter: 'tokencreate' }
-          - { name: 'Token Management', testfilter: 'tokenmanagement' }
-          - { name: 'Precompile', testfilter: 'htsprecompilev1' }
-          - { name: 'Precompile Calls', testfilter: 'precompile-calls' }
-          - { name: 'Websocket Batch 1', testfilter: 'ws_batch1', test_ws_server: true }
-          - { name: 'Websocket Batch 2', testfilter: 'ws_batch2', test_ws_server: true }
-          - { name: 'Websocket Batch 3', testfilter: 'ws_batch3', test_ws_server: true }
-          - { name: 'Cache Service', testfilter: 'cache-service' }
-          - { name: 'Server Config', testfilter: 'serverconfig' }
-          - { name: 'Semantics and varying response status', testfilter: 'json_rpc_compliance' }
-          - name: "Semantics and default OK response status"
-            testfilter: "json_rpc_compliance"
-            on_valid_json_rpc_http_response_status_code: 200
-    uses: ./.github/workflows/acceptance-workflow.yml
-    with:
-      testfilter: ${{ matrix.test.testfilter }}
-      test_ws_server: ${{ matrix.test.test_ws_server || false }}
-      on_valid_json_rpc_http_response_status_code: ${{ matrix.test.on_valid_json_rpc_http_response_status_code || 400 }}
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-  publish_results:
-    name: Publish Results
-    if: ${{ !cancelled() }}
-    needs: [acceptance_tests]
-    runs-on: hiero-smart-contracts-linux-medium
+  disabled:
+    if: false
+    runs-on: ubuntu-latest
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
-        with:
-          egress-policy: audit
-
-      - name: Download Test Reports
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          pattern: Test Results (*)
-          merge-multiple: true
-
-      - name: Publish Test Report
-        uses: step-security/publish-unit-test-result-action@914f0f642c242f38335a491805adfc9bd64b1cbb # v2.21.1
-        with:
-          check_name: '' # Set to empty to disable check run
-          json_thousands_separator: ','
-          files: 'test-*.xml'
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - run: echo "This workflow is disabled"

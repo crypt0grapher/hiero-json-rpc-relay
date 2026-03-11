@@ -85,7 +85,7 @@ describe('rpcMethod decorator integration', () => {
 
     it('should keep methods functional after decoration', () => {
       // Verify methods still work
-      expect(web3Impl.clientVersion()).to.equal('relay/1.0.0-test');
+      expect(web3Impl.clientVersion()).to.equal('goliath-relay/1.0.0-test');
 
       // Create a stub for sha3 to avoid actual hashing
       const sha3Stub = sinon.stub(web3Impl, 'sha3').returns('0xhashed');

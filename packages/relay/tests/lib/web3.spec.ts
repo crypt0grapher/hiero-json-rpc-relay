@@ -26,9 +26,9 @@ describe('Web3', function () {
   });
 
   withOverriddenEnvsInMochaTest({ npm_package_version: '1.0.0' }, () => {
-    it('should return "relay/1.0.0"', async function () {
+    it('should return "goliath-relay/1.0.0"', async function () {
       const clientVersion = web3Impl.clientVersion();
-      expect(clientVersion).to.be.equal('relay/' + ConfigService.get('npm_package_version'));
+      expect(clientVersion).to.be.equal('goliath-relay/' + ConfigService.get('npm_package_version'));
     });
   });
 
