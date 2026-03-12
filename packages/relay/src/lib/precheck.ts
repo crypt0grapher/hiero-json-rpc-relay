@@ -174,7 +174,7 @@ export class Precheck {
     // **notice: Pass gasPrice precheck if txGasPrice is greater than the minimum network's gas price value,
     //          OR if the transaction is the deterministic deployment transaction (a special case),
     //          OR paymaster is used for fully subsidized transactions where gasPrice was set 0 by the user and the provider set a gas allowance
-    // **explanation: The deterministic deployment transaction is pre-signed with a gasPrice value of only 10 hbars,
+    // **explanation: The deterministic deployment transaction is pre-signed with a gasPrice value of only 10 XCN,
     //                which is lower than the minimum gas price value in all Hedera network environments. Therefore,
     //                this special case is exempt from the precheck in the Relay, and the gas price logic will be resolved at the Services level.
     //                The same is true for fully subsidized transactions, where the precheck about the gasPrice is not needed anymore.

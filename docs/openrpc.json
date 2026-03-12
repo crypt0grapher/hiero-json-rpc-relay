@@ -9,17 +9,17 @@
     {
       "name": "Mainnet",
       "url": "https://mainnet.hashio.io/api",
-      "description": "Hedera Mainnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global HBAR spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
+      "description": "Hedera Mainnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global XCN spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
     },
     {
       "name": "Testnet",
       "url": "https://testnet.hashio.io/api",
-      "description": "Hedera Testnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global HBAR spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
+      "description": "Hedera Testnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global XCN spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
     },
     {
       "name": "Previewnet",
       "url": "https://previewnet.hashio.io/api",
-      "description": "Hedera Previewnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global HBAR spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
+      "description": "Hedera Previewnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global XCN spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
     },
     {
       "name": "localhost",
@@ -29,17 +29,17 @@
     {
       "name": "WS Mainnet",
       "url": "wss://mainnet.hashio.io/ws",
-      "description": "Hedera Web Socket Mainnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global HBAR spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
+      "description": "Hedera Web Socket Mainnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global XCN spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
     },
     {
       "name": "WS Testnet",
       "url": "wss://testnet.hashio.io/ws",
-      "description": "Hedera Web Socket Testnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global HBAR spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
+      "description": "Hedera Web Socket Testnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global XCN spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
     },
     {
       "name": "WS Previewnet",
       "url": "wss://previewnet.hashio.io/ws",
-      "description": "Hedera Web Socket Previewnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global HBAR spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
+      "description": "Hedera Web Socket Previewnet endpoint, hosted by [Hashio](https://swirldslabs.com/hashio/), a JSON-RPC Relay Community Service. Rate limited based [on IP address](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/rate-limiting.md) and [on global XCN spend](https://github.com/hiero-ledger/hiero-json-rpc-relay/blob/main/docs/hbar-limiting.md)."
     },
     {
       "name": "WS localhost",

@@ -43,7 +43,7 @@ export default class MetricService {
   readonly ethExecutionsCounter: Counter;
 
   /**
-   * An instance of the HbarLimitService that tracks hbar expenses and limits.
+   * An instance of the HbarLimitService that tracks XCN expenses and limits.
    */
   private readonly hbarLimitService: HbarLimitService;
 
@@ -54,7 +54,7 @@ export default class MetricService {
    * @param logger - Logger instance for logging system messages.
    * @param metricsCollector - `SDKClient` or `HAPIService` for fetching transaction record metrics from the Consensus Node.
    * @param register - Registry instance for registering metrics.
-   * @param hbarLimitService - An instance of the HbarLimitService that tracks hbar expenses and limits.
+   * @param hbarLimitService - An instance of the HbarLimitService that tracks XCN expenses and limits.
    */
   constructor(
     logger: Logger,
@@ -128,7 +128,7 @@ export default class MetricService {
   }
 
   /**
-   * Adds the expense to the HBAR rate limiter and captures the relevant metrics for the executed transaction.
+   * Adds the expense to the XCN rate limiter and captures the relevant metrics for the executed transaction.
    *
    * @param {IExecuteQueryEventPayload} payload - The payload object containing details about the transaction.
    * @param {string} payload.executionMode - The mode of the execution (TRANSACTION, QUERY, RECORD).

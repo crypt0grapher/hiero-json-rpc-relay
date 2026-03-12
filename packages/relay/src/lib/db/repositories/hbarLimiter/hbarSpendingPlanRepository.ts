@@ -146,7 +146,7 @@ export class HbarSpendingPlanRepository {
   }
 
   /**
-   * Resets the amount spent for all hbar spending plans.
+   * Resets the amount spent for all XCN spending plans.
    * @returns - A promise that resolves when the operation is complete.
    */
   async resetAmountSpentOfAllPlans(): Promise<void> {

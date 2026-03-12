@@ -25,7 +25,7 @@ export class HbarLimitService implements IHbarLimitService {
   };
 
   /**
-   * Flag to turn off the HBarRateLimitService.
+   * Flag to turn off the XCN rate limit service.
    * @private
    */
   private readonly isHBarRateLimiterEnabled: boolean = true;
@@ -43,7 +43,7 @@ export class HbarLimitService implements IHbarLimitService {
   private readonly hbarLimitRemainingGauge: Gauge;
 
   /**
-   * Tracks the total configured HBAR rate limit.
+   * Tracks the total configured XCN rate limit.
    * @private
    */
   private readonly totalHbarLimitGauge: Gauge;
@@ -103,7 +103,7 @@ export class HbarLimitService implements IHbarLimitService {
     this.register.removeSingleMetric(metricCounterName);
     this.hbarLimitCounter = new Counter({
       name: metricCounterName,
-      help: 'Relay Hbar limit counter',
+      help: 'Relay XCN limit counter',
       registers: [register],
       labelNames: ['mode', 'methodName'],
     });
@@ -113,7 +113,7 @@ export class HbarLimitService implements IHbarLimitService {
     this.register.removeSingleMetric(rateLimiterRemainingGaugeName);
     this.hbarLimitRemainingGauge = new Gauge({
       name: rateLimiterRemainingGaugeName,
-      help: 'Relay Hbar rate limit remaining budget',
+      help: 'Relay XCN rate limit remaining budget',
       registers: [register],
     });
     this.hbarLimitRemainingGauge.set(totalBudget.toTinybars().toNumber());
@@ -122,7 +122,7 @@ export class HbarLimitService implements IHbarLimitService {
     this.register.removeSingleMetric(totalHbarLimitGaugeName);
     this.totalHbarLimitGauge = new Gauge({
       name: totalHbarLimitGaugeName,
-      help: 'Total configured HBAR rate limit',
+      help: 'Total configured XCN rate limit',
       registers: [register],
     });
     this.totalHbarLimitGauge.set(totalBudget.toTinybars().toNumber());
@@ -156,7 +156,7 @@ export class HbarLimitService implements IHbarLimitService {
     );
 
     logger.info(
-      `HBAR Limiter successfully configured: totalBudget=${totalBudget}, maxLimitForBasicTier=${HbarLimitService.TIER_LIMITS.BASIC}, maxLimitForExtendedTier=${HbarLimitService.TIER_LIMITS.EXTENDED}, maxLimitForprivilegedTier=${HbarLimitService.TIER_LIMITS.PRIVILEGED}, limitDuration=${limitDuration}, resetTimeStamp=${this.reset}.`,
+      `XCN Limiter successfully configured: totalBudget=${totalBudget}, maxLimitForBasicTier=${HbarLimitService.TIER_LIMITS.BASIC}, maxLimitForExtendedTier=${HbarLimitService.TIER_LIMITS.EXTENDED}, maxLimitForprivilegedTier=${HbarLimitService.TIER_LIMITS.PRIVILEGED}, limitDuration=${limitDuration}, resetTimeStamp=${this.reset}.`,
     );
   }
 
@@ -175,14 +175,14 @@ export class HbarLimitService implements IHbarLimitService {
    */
   async resetLimiter(requestDetails: RequestDetails): Promise<void> {
     if (this.logger.isLevelEnabled('trace')) {
-      this.logger.trace(`Resetting HBAR rate limiter...`);
+      this.logger.trace(`Resetting XCN rate limiter...`);
     }
     await this.hbarSpendingPlanRepository.resetAmountSpentOfAllPlans();
     const remainingBudget = await this.getRemainingBudget(requestDetails);
     this.hbarLimitRemainingGauge.set(remainingBudget.toTinybars().toNumber());
     this.resetTemporaryMetrics();
     this.reset = this.getResetTimestamp();
-    this.logger.info(`HBAR Rate Limit reset: remainingBudget=${remainingBudget}, newResetTimestamp=${this.reset}`);
+    this.logger.info(`XCN Rate Limit reset: remainingBudget=${remainingBudget}, newResetTimestamp=${this.reset}`);
   }
 
   /**
@@ -239,7 +239,7 @@ export class HbarLimitService implements IHbarLimitService {
     this.logger.info(
       `Signer account ${
         exceedsLimit ? 'has' : 'has NOT'
-      } exceeded HBAR rate limit threshold: ${signer}, amountSpent=${Hbar.fromTinybars(
+      } exceeded XCN rate limit threshold: ${signer}, amountSpent=${Hbar.fromTinybars(
         spendingPlan.amountSpent,
       )}, estimatedTxFee=${Hbar.fromTinybars(estimatedTxFee)}, spendingLimit=${spendingLimit}, spandingPlanId=${
         spendingPlan.id
@@ -303,7 +303,7 @@ export class HbarLimitService implements IHbarLimitService {
     this.updateAverageAmountSpentPerSubscriptionTier(spendingPlan.subscriptionTier).then();
 
     this.logger.info(
-      `HBAR rate limit expense update: cost=${Hbar.fromTinybars(
+      `XCN rate limit expense update: cost=${Hbar.fromTinybars(
         cost,
       )}, remainingBudget=${remainingBudget}, spendingPlanId=${
         spendingPlan.id
@@ -339,7 +339,7 @@ export class HbarLimitService implements IHbarLimitService {
     if (remainingBudget.toTinybars().lte(0) || remainingBudget.toTinybars().sub(estimatedTxFee).lt(0)) {
       this.hbarLimitCounter.labels(mode, methodName).inc(1);
       this.logger.warn(
-        `Total HBAR rate limit reached: remainingBudget=${remainingBudget}, totalBudget=${totalBudget}, estimatedTxFee=${Hbar.fromTinybars(
+        `Total XCN rate limit reached: remainingBudget=${remainingBudget}, totalBudget=${totalBudget}, estimatedTxFee=${Hbar.fromTinybars(
           estimatedTxFee,
         )}, resetTimestamp=${this.reset.getMilliseconds()}, txConstructorName=${txConstructorName} mode=${mode}, methodName=${methodName}`,
       );
@@ -347,7 +347,7 @@ export class HbarLimitService implements IHbarLimitService {
     } else {
       if (this.logger.isLevelEnabled('debug')) {
         this.logger.debug(
-          `Total HBAR rate limit NOT reached: remainingBudget=${remainingBudget}, totalBudget=${totalBudget}, estimatedTxFee=${Hbar.fromTinybars(
+          `Total XCN rate limit NOT reached: remainingBudget=${remainingBudget}, totalBudget=${totalBudget}, estimatedTxFee=${Hbar.fromTinybars(
             estimatedTxFee,
           )}, resetTimestamp=${this.reset.getMilliseconds()}, txConstructorName=${txConstructorName} mode=${mode}, methodName=${methodName}`,
         );

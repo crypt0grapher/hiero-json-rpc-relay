@@ -97,7 +97,7 @@ export class Relay {
   /**
    * @private
    * @readonly
-   * @property {HbarSpendingPlanConfigService} hbarSpendingPlanConfigService - The service responsible for managing HBAR spending plans.
+   * @property {HbarSpendingPlanConfigService} hbarSpendingPlanConfigService - The service responsible for managing XCN spending plans.
    */
   private hbarSpendingPlanConfigService!: HbarSpendingPlanConfigService;
 
@@ -306,7 +306,7 @@ export class Relay {
       this.logger.child({ name: 'ip-address-spending-plan-repository' }),
     );
 
-    // Create HBAR limit service
+    // Create XCN limit service
     const hbarLimitService = new HbarLimitService(
       hbarSpendingPlanRepository,
       evmAddressHbarSpendingPlanRepository,
@@ -387,7 +387,7 @@ export class Relay {
     );
     this.adminImpl = new AdminImpl(this.cacheService);
 
-    // Create HBAR spending plan config service
+    // Create XCN spending plan config service
     this.hbarSpendingPlanConfigService = new HbarSpendingPlanConfigService(
       this.logger.child({ name: 'hbar-spending-plan-config-service' }),
       hbarSpendingPlanRepository,

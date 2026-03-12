@@ -73,7 +73,7 @@ export default class HAPIService {
   private readonly logger: Logger;
 
   /**
-   * An instance of the HbarLimitService that tracks hbar expenses and limits.
+   * An instance of the HbarLimitService that tracks XCN expenses and limits.
    */
   private readonly hbarLimitService: HbarLimitService;
 
@@ -92,7 +92,7 @@ export default class HAPIService {
    *
    * @param logger - The logger instance used for logging.
    * @param register - The registry instance for metrics and other services.
-   * @param hbarLimitService - An HBAR Rate Limit service that tracks hbar expenses and limits.
+   * @param hbarLimitService - An XCN Rate Limit service that tracks XCN expenses and limits.
    */
   constructor(logger: Logger, register: Registry, hbarLimitService: HbarLimitService) {
     this.logger = logger;

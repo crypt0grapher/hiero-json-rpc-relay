@@ -69,7 +69,7 @@ config:
   # TIER_3_RATE_LIMIT:
   # LIMIT_DURATION:
 
-  # ========== HBAR RATE LIMITING ==========
+  # ========== XCN RATE LIMITING ==========
   # HBAR_RATE_LIMIT_TINYBAR:
   # HBAR_RATE_LIMIT_DURATION:
   # HBAR_RATE_LIMIT_BASIC:

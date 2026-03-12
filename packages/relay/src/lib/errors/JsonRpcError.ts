@@ -62,11 +62,11 @@ export const predefined = {
     }),
   HBAR_RATE_LIMIT_EXCEEDED: new JsonRpcError({
     code: -32606,
-    message: 'HBAR Rate limit exceeded',
+    message: 'XCN Rate limit exceeded',
   }),
   HBAR_RATE_LIMIT_PREEMPTIVE_EXCEEDED: new JsonRpcError({
     code: -32606,
-    message: 'The HBAR rate limit was preemptively exceeded due to an excessively large callData size.',
+    message: 'The XCN rate limit was preemptively exceeded due to an excessively large callData size.',
   }),
   INSUFFICIENT_ACCOUNT_BALANCE: new JsonRpcError({
     code: -32000,

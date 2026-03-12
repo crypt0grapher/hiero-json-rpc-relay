@@ -345,7 +345,7 @@ export class TransactionService implements ITransactionService {
   }
 
   /**
-   * Retrieves the current network exchange rate of HBAR to USD in cents.
+   * Retrieves the current network exchange rate of XCN to USD in cents.
    * @param requestDetails The request details for logging and tracking
    * @returns {Promise<number>} A promise that resolves to the current exchange rate in cents
    */

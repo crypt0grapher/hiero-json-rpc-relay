@@ -59,7 +59,7 @@ export class SDKClient {
   private readonly fileAppendChunkSize: number;
 
   /**
-   * An instance of the HbarLimitService that tracks hbar expenses and limits.
+   * An instance of the HbarLimitService that tracks XCN expenses and limits.
    */
   private readonly hbarLimitService: HbarLimitService;
 
@@ -80,7 +80,7 @@ export class SDKClient {
    * @param hederaNetwork - The network name for Hedera services.
    * @param logger - The logger instance for logging information, warnings, and errors.
    * @param eventEmitter - The eventEmitter used for emitting and handling events within the class.
-   * @param hbarLimitService - The HbarLimitService that tracks hbar expenses and limits.
+   * @param hbarLimitService - The HbarLimitService that tracks XCN expenses and limits.
    */
   constructor(
     hederaNetwork: string,
@@ -323,7 +323,7 @@ export class SDKClient {
    * @param transaction - The transaction to execute.
    * @param callerName - The name of the caller requesting the transaction.
    * @param requestDetails - The request details for logging and tracking.
-   * @param shouldThrowHbarLimit - Flag to indicate whether to check HBAR limits.
+   * @param shouldThrowHbarLimit - Flag to indicate whether to check XCN limits.
    * @param originalCallerAddress - The address of the original caller making the request.
    * @param estimatedTxFee - The optional total estimated transaction fee.
    * @param paymasterClient - The optional paymaster client.
@@ -411,12 +411,12 @@ export class SDKClient {
   }
 
   /**
-   * Executes all transactions in a batch, checks HBAR limits, retrieves metrics, and captures expenses.
+   * Executes all transactions in a batch, checks XCN limits, retrieves metrics, and captures expenses.
    *
    * @param transaction - The batch transaction to execute.
    * @param callerName - The name of the caller requesting the transaction.
    * @param requestDetails - The request details for logging and tracking.
-   * @param shouldThrowHbarLimit - Flag to indicate whether to check HBAR limits.
+   * @param shouldThrowHbarLimit - Flag to indicate whether to check XCN limits.
    * @param originalCallerAddress - The address of the original caller making the request.
    * @param estimatedTxFee - The optioanl total estimated transaction fee.
    * @returns A promise that resolves when the batch execution is complete.
@@ -495,7 +495,7 @@ export class SDKClient {
    * @param requestDetails - The request details for logging and tracking.
    * @param callerName - The name of the caller creating the file.
    * @param originalCallerAddress - The address of the original caller making the request.
-   * @param currentNetworkExchangeRateInCents - The current network exchange rate in cents per HBAR.
+   * @param currentNetworkExchangeRateInCents - The current network exchange rate in cents per XCN.
    * @returns A promise that resolves to the created file ID or null if the creation failed.
    * @throws Will throw an error if the created file is empty or if any transaction fails during execution.
    */

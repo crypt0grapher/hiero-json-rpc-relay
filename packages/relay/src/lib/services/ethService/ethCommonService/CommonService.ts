@@ -686,7 +686,7 @@ export class CommonService implements ICommonService {
    *
    * @returns An object containing:
    * - `accountId`: The paymaster account ID to be used for subsidizing gas.
-   * - `gasAllowance`: The maximum gas allowance (in HBAR) provided by the paymaster.
+   * - `gasAllowance`: The maximum gas allowance (in XCN) provided by the paymaster.
    *
    * Returns `null` if the transaction is not eligible for paymaster subsidization.
    */
