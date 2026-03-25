@@ -25,6 +25,7 @@ import { IContractResultsParams, ITransactionReceipt, MirrorNodeBlock, RequestDe
 import { IReceiptRlpInput } from '../../../types/IReceiptRlpInput';
 import { wrapError } from '../../workersService/WorkersErrorUtils';
 import { CommonService } from '../ethCommonService/CommonService';
+import { transactionBlockCache } from '../transactionBlockCache';
 
 /**
  * Worker threads run in separate V8 Isolates with isolated memory heaps.
@@ -277,6 +278,39 @@ async function getRootHash(receipts: IReceiptRootHash[]): Promise<string> {
   return prepend0x(Buffer.from(trie.root()).toString('hex'));
 }
 
+/**
+ * Determines whether a contract result represents a genuine EVM transaction.
+ *
+ * Non-EVM transactions (e.g. Hedera SDK CryptoTransfer, TokenMint, etc.) are
+ * returned by the mirror node with `chain_id: null` (along with null `r`, `s`,
+ * `v`, and `nonce`).  Including them in EVM block responses produces invalid
+ * transaction data that confuses block explorers such as Blockscout.
+ *
+ * This check MUST run **before** the `chain_id = chain_id || chain` fallback
+ * assignment so that the null value has not yet been overwritten.
+ *
+ * @param contractResult - A single contract result object from the mirror node.
+ * @returns `true` when the result is a real EVM transaction; `false` otherwise.
+ */
+function isEvmTransaction(contractResult: {
+  chain_id?: string | null;
+  r?: string | null;
+  s?: string | null;
+  v?: number | null;
+}): boolean {
+  // Primary discriminator: non-EVM results always have chain_id === null
+  if (contractResult.chain_id == null) {
+    return false;
+  }
+
+  // Secondary guard: genuine EVM transactions carry ECDSA signature components
+  if (contractResult.r == null && contractResult.s == null && contractResult.v == null) {
+    return false;
+  }
+
+  return true;
+}
+
 async function prepareTransactionArray(
   contractResults: any[],
   showDetails: boolean,
@@ -286,6 +320,18 @@ async function prepareTransactionArray(
 ): Promise<Transaction[] | string[]> {
   const txArray: Transaction[] | string[] = [];
   for (const contractResult of contractResults) {
+    // Filter non-EVM transactions BEFORE the chain_id fallback assignment.
+    // Non-EVM results (SDK native) have chain_id=null, r=null, s=null, v=null
+    // and must not appear in EVM block responses.
+    if (!isEvmTransaction(contractResult)) {
+      logger.debug(
+        `Transaction with hash %s is skipped because it is not an EVM transaction (chain_id=%s)`,
+        contractResult.hash,
+        contractResult.chain_id,
+      );
+      continue;
+    }
+
     if (Utils.isRejectedDueToHederaSpecificValidation(contractResult)) {
       logger.debug(
         `Transaction with hash %s is skipped due to hedera-specific validation failure (%s)`,
@@ -348,8 +394,12 @@ export async function getBlock(
       throw predefined.MAX_BLOCK_SIZE(blockResponse.count);
     }
 
+    // Pre-filter non-EVM contract results so all downstream consumers
+    // (transaction array, receipt root, block) operate on the same EVM-only set.
+    const evmContractResults = contractResults.filter((cr) => isEvmTransaction(cr));
+
     let txArray: Transaction[] | string[] = await prepareTransactionArray(
-      contractResults,
+      evmContractResults,
       showDetails,
       requestDetails,
       chain,
@@ -358,23 +408,28 @@ export async function getBlock(
 
     txArray = populateSyntheticTransactions(showDetails, logs, txArray, chain);
 
+    // Populate the transaction-block cache so that downstream consumers
+    // (getTransactionReceipt, getTransactionByHash) can resolve hashes that
+    // appear in block responses but have no individual mirror-node entry.
+    const blockNumberHex = numberTo0x(blockResponse.number);
+    for (const tx of txArray) {
+      const hash = showDetails ? (tx as Transaction).hash : (tx as string);
+      if (hash) {
+        transactionBlockCache.set(hash, blockNumberHex);
+      }
+    }
+
     const receipts: IReceiptRootHash[] = buildReceiptRootHashes(
       txArray.map((tx) => (showDetails ? (tx as Transaction).hash : (tx as string))),
-      contractResults,
+      evmContractResults,
       logs,
     );
 
     const receiptsRoot: string = await getRootHash(receipts);
 
-    // Use block-time gas price (not current) so baseFeePerGas matches effectiveGasPrice.
-    // Mirrors the pattern in getBlockReceipts (line 364).
-    const blockTimestamp = blockResponse.timestamp?.from?.split('.')[0] ?? '';
-    const gasPrice = numberTo0x(await commonService.getGasPriceInWeibars(requestDetails, blockTimestamp));
-
     return await BlockFactory.createBlock({
       blockResponse,
       txArray,
-      gasPrice,
       receiptsRoot,
     });
   } catch (e: unknown) {
@@ -394,12 +449,36 @@ export async function getBlockReceipts(
       return [];
     }
 
-    const effectiveGas = numberTo0x(
-      await commonService.getGasPriceInWeibars(requestDetails, block.timestamp.from.split('.')[0]),
-    );
+    // Genesis block (block 0) has no fee schedule at its timestamp; fall back to current fees.
+    let effectiveGas: string;
+    try {
+      effectiveGas = numberTo0x(
+        await commonService.getGasPriceInWeibars(requestDetails, block.timestamp.from.split('.')[0]),
+      );
+    } catch (e) {
+      if (block.number === 0) {
+        logger.debug('Genesis block gas price fallback — using current network gas price');
+        effectiveGas = numberTo0x(await commonService.getGasPriceInWeibars(requestDetails));
+      } else {
+        throw e;
+      }
+    }
+
+    // Filter non-EVM transactions before building receipts (same guard as prepareTransactionArray)
+    const evmContractResults = contractResults.filter((contractResult) => {
+      if (!isEvmTransaction(contractResult)) {
+        logger.debug(
+          `Receipt for hash %s is skipped because it is not an EVM transaction (chain_id=%s)`,
+          contractResult.hash,
+          contractResult.chain_id,
+        );
+        return false;
+      }
+      return true;
+    });
 
     const resolved = await Promise.all(
-      contractResults.map(async (contractResult) => {
+      evmContractResults.map(async (contractResult) => {
         if (Utils.isRejectedDueToHederaSpecificValidation(contractResult)) {
           logger.debug(
             `Transaction with hash %s is skipped due to hedera-specific validation failure (%s)`,
@@ -442,7 +521,7 @@ export async function getBlockReceipts(
       receipts.push(receipt);
     }
 
-    const regularTxHashes = new Set(contractResults.map((result) => result.hash));
+    const regularTxHashes = new Set(evmContractResults.map((result) => result.hash));
 
     // filtering out the synthetic tx hashes and creating the synthetic receipt
     for (const [txHash, logGroup] of logsByHash.entries()) {
@@ -498,8 +577,11 @@ export async function getRawReceipts(
       return [];
     }
 
+    // Filter non-EVM transactions before building raw receipts (same guard as prepareTransactionArray)
+    const evmResults = contractResults.filter((cr) => isEvmTransaction(cr));
+
     let cumulativeGasUsed = 0;
-    const encodedReceipts = contractResults
+    const encodedReceipts = evmResults
       .map((contractResult) => {
         if (Utils.isRejectedDueToHederaSpecificValidation(contractResult)) {
           logger.debug(
@@ -518,7 +600,7 @@ export async function getRawReceipts(
       })
       .filter((encodedReceipt): encodedReceipt is string => encodedReceipt !== null);
 
-    const regularTxHashes = new Set(contractResults.map((result) => result.hash));
+    const regularTxHashes = new Set(evmResults.map((result) => result.hash));
 
     // filtering out the synthetic tx hashes and creating the synthetic receipt
     for (const [txHash, logGroup] of logsByHash.entries()) {
@@ -631,6 +713,7 @@ function createSyntheticReceiptRlpInput(syntheticLogs: Log[]): IReceiptRlpInput 
 // due to `ES2015 module syntax is preferred over namespaces` eslint warning
 export const __test__ = {
   __private: {
+    isEvmTransaction,
     populateSyntheticTransactions,
   },
 };
