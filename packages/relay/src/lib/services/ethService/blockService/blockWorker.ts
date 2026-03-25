@@ -485,11 +485,13 @@ export async function getBlock(
     );
 
     const receiptsRoot: string = await getRootHash(receipts);
+    const gasPrice = await commonService.gasPrice(requestDetails);
 
     return await BlockFactory.createBlock({
       blockResponse,
       txArray,
       receiptsRoot,
+      gasPrice,
     });
   } catch (e: unknown) {
     throw wrapError(e);

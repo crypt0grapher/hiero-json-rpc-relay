@@ -30,10 +30,10 @@ export class Block {
 
   /**
    * Base fee per gas (EIP-1559)
-   * Hedera has no EIP-1559 style floating block capacity fees (HIP-415),
-   * but we return 0x1 (1 wei) instead of 0x0 because ethers.js and MetaMask
-   * treat BigInt(0) as falsy, skipping EIP-1559 fee computation entirely.
-   * This causes maxFeePerGas=undefined in getFeeData(), breaking tx submission.
+   * Goliath has no EIP-1559 style floating block capacity fees (HIP-415).
+   * The entire gas price IS the base fee — there is no tip/priority fee system.
+   * Set to the chain's gas price by BlockFactory.createBlock().
+   * Default '0x1' is a safe fallback (must be > 0: ethers.js treats 0n as falsy).
    */
   public readonly baseFeePerGas: string = '0x1';
 

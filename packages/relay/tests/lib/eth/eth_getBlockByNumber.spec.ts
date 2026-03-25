@@ -25,6 +25,7 @@ import {
   withOverriddenEnvsInMochaTest,
 } from '../../helpers';
 import {
+  BASE_FEE_PER_GAS_HEX,
   BLOCK_HASH,
   BLOCK_HASH_PREV_TRIMMED,
   BLOCK_HASH_TRIMMED,
@@ -442,7 +443,7 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
   });
 
   describe('eth_getBlockByNumber with tag', async function () {
-    const TOTAL_GET_CALLS_EXECUTED = 9; // baseFeePerGas is constant (0x1), no network/fees calls needed
+    const TOTAL_GET_CALLS_EXECUTED = 10; // includes network/fees call for gasPrice()
     function confirmResult(result: Block | null) {
       expect(result).to.exist;
       expect(result).to.not.be.null;
@@ -682,9 +683,8 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
       expect(result!.number).to.equal('0x0');
     });
 
-    it('eth_getBlockByNumber succeeds for non-genesis block even when network fees are unavailable', async function () {
-      // baseFeePerGas is now a constant (0x1, HIP-415), so block construction
-      // no longer depends on network fee lookups.
+    it('eth_getBlockByNumber succeeds for non-genesis block with network fees available', async function () {
+      // baseFeePerGas is now the chain gas price from gasPrice(), which requires network/fees.
       const NON_GENESIS_BLOCK_NUM = 5;
       const NON_GENESIS_TS_FROM = '1651560500.000000000';
       const NON_GENESIS_TS_TO = '1651560501.000000000';
@@ -708,12 +708,13 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
       restMock.onGet(BLOCKS_LIMIT_ORDER_URL).reply(200, JSON.stringify(MOST_RECENT_BLOCK));
       restMock.onGet(NON_GENESIS_CR_URL).reply(200, JSON.stringify({ results: [] }));
       restMock.onGet(NON_GENESIS_LOGS_URL).reply(200, JSON.stringify({ logs: [] }));
+      restMock.onGet('network/fees').reply(200, JSON.stringify(DEFAULT_NETWORK_FEES));
 
       const result = await ethImpl.getBlockByNumber(numberTo0x(NON_GENESIS_BLOCK_NUM), false, requestDetails);
       expect(result).to.exist;
       expect(result).to.not.be.null;
       expect(result!.number).to.equal(numberTo0x(NON_GENESIS_BLOCK_NUM));
-      expect(result!.baseFeePerGas).to.equal('0x1');
+      expect(result!.baseFeePerGas).to.equal(BASE_FEE_PER_GAS_HEX);
     });
   });
 });
