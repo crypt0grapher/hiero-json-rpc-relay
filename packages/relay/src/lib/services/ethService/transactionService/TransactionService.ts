@@ -762,21 +762,27 @@ export class TransactionService implements ITransactionService {
           : Number(contractResult.chain_id)
         : Number(this.chain);
 
+      // Mirror API returns fee/value fields in tinybar, but the EVM transaction
+      // was RLP-signed using weibar values.  Convert back to weibar so that
+      // ecrecover reconstructs the correct unsigned-tx hash.
+      const COEF = BigInt(constants.TINYBAR_TO_WEIBAR_COEF);
+      const toWei = (v: any): bigint => BigInt(v ?? 0) * COEF;
+
       const txFields: any = {
         type: txType,
         nonce: contractResult.nonce ?? 0,
         gasLimit: contractResult.gas_limit,
         to: contractResult.to ? contractResult.to.substring(0, 42) : undefined,
-        value: contractResult.amount ?? 0,
+        value: toWei(contractResult.amount),
         data: contractResult.function_parameters || contractResult.call_data || '0x',
         chainId,
       };
 
       if (txType === 2) {
-        txFields.maxFeePerGas = contractResult.max_fee_per_gas;
-        txFields.maxPriorityFeePerGas = contractResult.max_priority_fee_per_gas;
+        txFields.maxFeePerGas = toWei(contractResult.max_fee_per_gas);
+        txFields.maxPriorityFeePerGas = toWei(contractResult.max_priority_fee_per_gas);
       } else {
-        txFields.gasPrice = contractResult.gas_price;
+        txFields.gasPrice = toWei(contractResult.gas_price);
       }
 
       const tx = ethers.Transaction.from({
