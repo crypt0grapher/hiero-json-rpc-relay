@@ -162,7 +162,7 @@ export const ONE_TINYBAR_IN_WEI_HEX = toHex(TINYBAR_TO_WEIBAR_COEF_BIGINT);
 export const BASE_FEE_PER_GAS_HEX = numberTo0x(
   BigInt(DEFAULT_NETWORK_FEES.fees[2].gas) * TINYBAR_TO_WEIBAR_COEF_BIGINT,
 ); // '0x84b6a5c400' -> 570_000_000_000 tb
-export const BASE_FEE_PER_GAS_DEFAULT = '0x33d758c09000';
+export const BASE_FEE_PER_GAS_DEFAULT = '0x1'; // 1 wei: Hedera/Goliath has no EIP-1559 base fee (HIP-415)
 export const DEF_BALANCE = 99960581137;
 export const CONTRACT_ID_1 = '0.0.1375';
 export const CONTRACT_ID_2 = '0.0.1374';

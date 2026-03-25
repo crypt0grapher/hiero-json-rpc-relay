@@ -32,7 +32,6 @@ import {
   BLOCK_NUMBER,
   BLOCK_NUMBER_HEX,
   BLOCK_NUMBER_WITH_SYN_TXN,
-  BLOCK_TIMESTAMP,
   BLOCK_TIMESTAMP_HEX,
   BLOCK_WITH_SYN_TXN,
   BLOCKS_LIMIT_ORDER_URL,
@@ -443,7 +442,7 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
   });
 
   describe('eth_getBlockByNumber with tag', async function () {
-    const TOTAL_GET_CALLS_EXECUTED = 12;
+    const TOTAL_GET_CALLS_EXECUTED = 9; // baseFeePerGas is constant (0x1), no network/fees calls needed
     function confirmResult(result: Block | null) {
       expect(result).to.exist;
       expect(result).to.not.be.null;
@@ -474,7 +473,6 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
       expect(restMock.history.get[2].url).equal(
         'contracts/results/logs?timestamp=gte:1651560386.060890949&timestamp=lte:1651560389.060890949&limit=100&order=asc',
       );
-      expect(restMock.history.get[TOTAL_GET_CALLS_EXECUTED - 1].url).equal(`network/fees?timestamp=${BLOCK_TIMESTAMP}`);
       confirmResult(result);
     });
 
@@ -509,7 +507,6 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
       expect(restMock.history.get[2].url).equal(
         'contracts/results/logs?timestamp=gte:1651560386.060890949&timestamp=lte:1651560389.060890949&limit=100&order=asc',
       );
-      expect(restMock.history.get[TOTAL_GET_CALLS_EXECUTED - 1].url).equal(`network/fees?timestamp=${BLOCK_TIMESTAMP}`);
       confirmResult(result);
     });
 
@@ -524,7 +521,6 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
       expect(restMock.history.get[2].url).equal(
         'contracts/results/logs?timestamp=gte:1651560386.060890949&timestamp=lte:1651560389.060890949&limit=100&order=asc',
       );
-      expect(restMock.history.get[TOTAL_GET_CALLS_EXECUTED - 1].url).equal(`network/fees?timestamp=${BLOCK_TIMESTAMP}`);
       confirmResult(result);
     });
 
@@ -686,7 +682,9 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
       expect(result!.number).to.equal('0x0');
     });
 
-    it('eth_getBlockByNumber still throws for non-genesis block when gas price fails', async function () {
+    it('eth_getBlockByNumber succeeds for non-genesis block even when network fees are unavailable', async function () {
+      // baseFeePerGas is now a constant (0x1, HIP-415), so block construction
+      // no longer depends on network fee lookups.
       const NON_GENESIS_BLOCK_NUM = 5;
       const NON_GENESIS_TS_FROM = '1651560500.000000000';
       const NON_GENESIS_TS_TO = '1651560501.000000000';
@@ -703,7 +701,6 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
       const NON_GENESIS_CR_URL = `contracts/results?timestamp=gte:${NON_GENESIS_TS_FROM}&timestamp=lte:${NON_GENESIS_TS_TO}&limit=100&order=asc`;
       const NON_GENESIS_LOGS_URL = `contracts/results/logs?timestamp=gte:${NON_GENESIS_TS_FROM}&timestamp=lte:${NON_GENESIS_TS_TO}&limit=100&order=asc`;
 
-      // Reset all mocks so parent beforeEach regex doesn't supply valid fees
       restMock.reset();
       restMock.resetHandlers();
 
@@ -712,12 +709,11 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
       restMock.onGet(NON_GENESIS_CR_URL).reply(200, JSON.stringify({ results: [] }));
       restMock.onGet(NON_GENESIS_LOGS_URL).reply(200, JSON.stringify({ logs: [] }));
 
-      // All fee lookups return empty — no EthereumTransaction fee type
-      restMock.onGet(/network\/fees/).reply(200, JSON.stringify({ fees: [] }));
-
-      await expect(
-        ethImpl.getBlockByNumber(numberTo0x(NON_GENESIS_BLOCK_NUM), false, requestDetails),
-      ).to.eventually.be.rejected.and.satisfy((error: any) => error.code === -32603);
+      const result = await ethImpl.getBlockByNumber(numberTo0x(NON_GENESIS_BLOCK_NUM), false, requestDetails);
+      expect(result).to.exist;
+      expect(result).to.not.be.null;
+      expect(result!.number).to.equal(numberTo0x(NON_GENESIS_BLOCK_NUM));
+      expect(result!.baseFeePerGas).to.equal('0x1');
     });
   });
 });
