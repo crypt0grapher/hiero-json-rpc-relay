@@ -3,10 +3,8 @@ name: "Build & Publish JSON-RPC Relay Image"
 
 on:
   push:
-    branches: [main]
-    tags: ["goliath-*"]
-  pull_request:
-    branches: [main]
+    branches: [testnet]
+    tags: ["goliath-testnet-*"]
   workflow_dispatch:
     inputs:
       platforms:
@@ -43,7 +41,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}},prefix=
-            type=match,pattern=goliath-(.*),group=1
+            type=match,pattern=goliath-testnet-(.*),group=1
             type=sha,prefix=
 
       - name: Setup Docker Buildx
