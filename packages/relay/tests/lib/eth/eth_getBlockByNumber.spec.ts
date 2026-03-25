@@ -642,4 +642,82 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
       }
     }
   });
+
+  describe('genesis block gas price fallback', function () {
+    const GENESIS_TIMESTAMP_FROM = '1000000000.000000000';
+    const GENESIS_TIMESTAMP_TO = '1000000001.000000000';
+    const GENESIS_TIMESTAMP_SEC = '1000000000';
+    const GENESIS_BLOCK = {
+      ...DEFAULT_BLOCK,
+      number: 0,
+      count: 0,
+      gas_used: 0,
+      timestamp: {
+        from: GENESIS_TIMESTAMP_FROM,
+        to: GENESIS_TIMESTAMP_TO,
+      },
+    };
+    const GENESIS_CONTRACT_RESULTS_URL = `contracts/results?timestamp=gte:${GENESIS_TIMESTAMP_FROM}&timestamp=lte:${GENESIS_TIMESTAMP_TO}&limit=100&order=asc`;
+    const GENESIS_LOGS_URL = `contracts/results/logs?timestamp=gte:${GENESIS_TIMESTAMP_FROM}&timestamp=lte:${GENESIS_TIMESTAMP_TO}&limit=100&order=asc`;
+
+    it('eth_getBlockByNumber(0x0) falls back to current gas price when genesis timestamp has no fees', async function () {
+      // Reset all mocks so parent beforeEach regex doesn't supply valid fees for genesis timestamp
+      restMock.reset();
+      restMock.resetHandlers();
+
+      // Block 0 exists but has no fee schedule at genesis timestamp
+      restMock.onGet('blocks/0').reply(200, JSON.stringify(GENESIS_BLOCK));
+      restMock.onGet(BLOCKS_LIMIT_ORDER_URL).reply(200, JSON.stringify(MOST_RECENT_BLOCK));
+      restMock.onGet(GENESIS_CONTRACT_RESULTS_URL).reply(200, JSON.stringify({ results: [] }));
+      restMock.onGet(GENESIS_LOGS_URL).reply(200, JSON.stringify({ logs: [] }));
+
+      // Genesis timestamp fee lookup fails (no EthereumTransaction fee at that timestamp)
+      restMock.onGet(`network/fees?timestamp=${GENESIS_TIMESTAMP_SEC}`).reply(200, JSON.stringify({ fees: [] }));
+
+      // Current fee lookup (no timestamp) succeeds with valid EthereumTransaction fee
+      const modifiedNetworkFees = structuredClone(DEFAULT_NETWORK_FEES);
+      modifiedNetworkFees.fees[2].gas *= 100;
+      restMock.onGet('network/fees').reply(200, JSON.stringify(modifiedNetworkFees));
+
+      const result = await ethImpl.getBlockByNumber('0x0', false, requestDetails);
+
+      expect(result).to.exist;
+      expect(result).to.not.be.null;
+      expect(result!.number).to.equal('0x0');
+    });
+
+    it('eth_getBlockByNumber still throws for non-genesis block when gas price fails', async function () {
+      const NON_GENESIS_BLOCK_NUM = 5;
+      const NON_GENESIS_TS_FROM = '1651560500.000000000';
+      const NON_GENESIS_TS_TO = '1651560501.000000000';
+      const NON_GENESIS_BLOCK = {
+        ...DEFAULT_BLOCK,
+        number: NON_GENESIS_BLOCK_NUM,
+        count: 0,
+        gas_used: 0,
+        timestamp: {
+          from: NON_GENESIS_TS_FROM,
+          to: NON_GENESIS_TS_TO,
+        },
+      };
+      const NON_GENESIS_CR_URL = `contracts/results?timestamp=gte:${NON_GENESIS_TS_FROM}&timestamp=lte:${NON_GENESIS_TS_TO}&limit=100&order=asc`;
+      const NON_GENESIS_LOGS_URL = `contracts/results/logs?timestamp=gte:${NON_GENESIS_TS_FROM}&timestamp=lte:${NON_GENESIS_TS_TO}&limit=100&order=asc`;
+
+      // Reset all mocks so parent beforeEach regex doesn't supply valid fees
+      restMock.reset();
+      restMock.resetHandlers();
+
+      restMock.onGet(`blocks/${NON_GENESIS_BLOCK_NUM}`).reply(200, JSON.stringify(NON_GENESIS_BLOCK));
+      restMock.onGet(BLOCKS_LIMIT_ORDER_URL).reply(200, JSON.stringify(MOST_RECENT_BLOCK));
+      restMock.onGet(NON_GENESIS_CR_URL).reply(200, JSON.stringify({ results: [] }));
+      restMock.onGet(NON_GENESIS_LOGS_URL).reply(200, JSON.stringify({ logs: [] }));
+
+      // All fee lookups return empty — no EthereumTransaction fee type
+      restMock.onGet(/network\/fees/).reply(200, JSON.stringify({ fees: [] }));
+
+      await expect(
+        ethImpl.getBlockByNumber(numberTo0x(NON_GENESIS_BLOCK_NUM), false, requestDetails),
+      ).to.eventually.be.rejected.and.satisfy((error: any) => error.code === -32603);
+    });
+  });
 });

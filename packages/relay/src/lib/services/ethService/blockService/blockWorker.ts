@@ -4,6 +4,7 @@ import { RLP } from '@ethereumjs/rlp';
 import { Trie } from '@ethereumjs/trie';
 import { bytesToInt, concatBytes, hexToBytes, intToBytes, intToHex } from '@ethereumjs/util';
 import { ConfigService } from '@hashgraph/json-rpc-config-service/dist/services';
+import { ethers } from 'ethers';
 import pino from 'pino';
 
 import { nanOrNumberTo0x, numberTo0x, prepend0x } from '../../../../formatters';
@@ -311,6 +312,55 @@ function isEvmTransaction(contractResult: {
   return true;
 }
 
+/**
+ * Recovers the EVM sender address from a contract result via ecrecover.
+ * Returns the checksummed address or null on failure.
+ */
+function recoverSenderFromContractResult(contractResult: any, chain: string): string | null {
+  try {
+    if (!contractResult.r || !contractResult.s || contractResult.v == null) {
+      return null;
+    }
+
+    const txType = contractResult.type ?? 0;
+    const chainId = contractResult.chain_id
+      ? typeof contractResult.chain_id === 'string' && contractResult.chain_id.startsWith('0x')
+        ? parseInt(contractResult.chain_id, 16)
+        : Number(contractResult.chain_id)
+      : Number(chain);
+
+    const txFields: any = {
+      type: txType,
+      nonce: contractResult.nonce ?? 0,
+      gasLimit: contractResult.gas_limit,
+      to: contractResult.to ? contractResult.to.substring(0, 42) : undefined,
+      value: contractResult.amount ?? 0,
+      data: contractResult.function_parameters || contractResult.call_data || '0x',
+      chainId,
+    };
+
+    if (txType === 2) {
+      txFields.maxFeePerGas = contractResult.max_fee_per_gas;
+      txFields.maxPriorityFeePerGas = contractResult.max_priority_fee_per_gas;
+    } else {
+      txFields.gasPrice = contractResult.gas_price;
+    }
+
+    const tx = ethers.Transaction.from({
+      ...txFields,
+      signature: {
+        r: contractResult.r,
+        s: contractResult.s,
+        v: contractResult.v,
+      },
+    });
+
+    return tx.from;
+  } catch {
+    return null;
+  }
+}
+
 async function prepareTransactionArray(
   contractResults: any[],
   showDetails: boolean,
@@ -341,8 +391,11 @@ async function prepareTransactionArray(
       continue;
     }
 
+    const recoveredSender = recoverSenderFromContractResult(contractResult, chain);
     [contractResult.from, contractResult.to] = await Promise.all([
-      commonService.resolveEvmAddress(contractResult.from, requestDetails, [constants.TYPE_ACCOUNT]),
+      recoveredSender
+        ? Promise.resolve(recoveredSender)
+        : commonService.resolveEvmAddress(contractResult.from, requestDetails, [constants.TYPE_ACCOUNT]),
       commonService.resolveEvmAddress(contractResult.to, requestDetails),
     ]);
 
@@ -489,8 +542,11 @@ export async function getBlockReceipts(
         }
 
         const logs = logsByHash.get(contractResult.hash) || [];
+        const recoveredSender = recoverSenderFromContractResult(contractResult, ConfigService.get('CHAIN_ID'));
         const [from, to] = await Promise.all([
-          commonService.resolveEvmAddress(contractResult.from, requestDetails),
+          recoveredSender
+            ? Promise.resolve(recoveredSender)
+            : commonService.resolveEvmAddress(contractResult.from, requestDetails),
           contractResult.to === null ? null : commonService.resolveEvmAddress(contractResult.to, requestDetails),
         ]);
 

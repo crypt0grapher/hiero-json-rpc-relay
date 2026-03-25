@@ -41,7 +41,8 @@ describe('Precheck', async function () {
   const txWithMatchingChainId =
     '0x02f87482012a0485a7a358200085a7a3582000832dc6c09400000000000000000000000000000000000003f78502540be40080c001a006f4cd8e6f84b76a05a5c1542a08682c928108ef7163d9c1bf1f3b636b1cd1fba032097cbf2dda17a2dcc40f62c97964d9d930cdce2e8a9df9a8ba023cda28e4ad';
   const parsedTxWithMatchingChainId = ethers.Transaction.from(txWithMatchingChainId);
-  const parsedTxGasPrice = 1440000000000;
+  // For type-2 txs, the effective gas price is maxFeePerGas (not the sum of maxFeePerGas + maxPriorityFeePerGas)
+  const parsedTxGasPrice = 720000000000;
   const txWithChainId0x0 =
     '0xf86a0385a7a3582000832dc6c09400000000000000000000000000000000000003f78502540be400801ca06750e92db52fa708e27f94f27e0cfb7f5800f9b657180bb2e94c1520cfb1fb6da01bec6045068b6db38b55017bb8b50166699384bc1791fd8331febab0cf629a2a';
   const parsedtxWithChainId0x0 = ethers.Transaction.from(txWithChainId0x0);
@@ -446,6 +447,53 @@ describe('Precheck', async function () {
         expect(() => precheck.gasPrice(parsedTx, minGasPrice)).to.not.throw();
       });
     });
+
+    it('should not pass for type-2 tx where maxFeePerGas < networkGasPrice even if sum exceeds it', async function () {
+      // Values must be large enough that GAS_PRICE_TINY_BAR_BUFFER (10_000_000_000) cannot bridge the gap
+      const parsedTx = {
+        ...parsedTxWithMatchingChainId,
+        gasPrice: null,
+        maxFeePerGas: BigInt(100_000_000_000), // 10 tinybars
+        maxPriorityFeePerGas: BigInt(500_000_000_000), // 50 tinybars
+      } as Transaction;
+      // Network requires 200 tinybars (2_000_000_000_000 wei)
+      // With fix: txGasPrice = maxFeePerGas = 100_000_000_000 < 2_000_000_000_000 -> FAIL
+      // With bug: txGasPrice = 100_000_000_000 + 500_000_000_000 = 600_000_000_000 < 2_000_000_000_000 -> also FAIL
+      // So we pick networkGasPrice such that maxFeePerGas < networkGasPrice but sum > networkGasPrice.
+      // maxFeePerGas = 100e9, maxPriorityFeePerGas = 500e9, sum = 600e9
+      // buffer = 10e9
+      // networkGasPrice must be: > maxFeePerGas + buffer (110e9) AND < sum (600e9)
+      const networkGasPrice = 200_000_000_000; // 200e9
+      try {
+        precheck.gasPrice(parsedTx, networkGasPrice);
+        expectedError();
+      } catch (e: any) {
+        expect(e).to.exist;
+        expect(e.code).to.eq(-32009);
+        expect(e.message).to.contain('Gas price');
+        expect(e.message).to.contain('is below configured minimum gas price');
+      }
+    });
+
+    it('should pass for type-2 tx where maxFeePerGas >= networkGasPrice', async function () {
+      const parsedTx = {
+        ...parsedTxWithMatchingChainId,
+        gasPrice: null,
+        maxFeePerGas: BigInt(100),
+        maxPriorityFeePerGas: BigInt(100),
+      } as Transaction;
+      expect(() => precheck.gasPrice(parsedTx, 100)).to.not.throw();
+    });
+
+    it('should pass for wallet-like type-2 tx where maxFeePerGas = maxPriorityFeePerGas = gasPrice', async function () {
+      const parsedTx = {
+        ...parsedTxWithMatchingChainId,
+        gasPrice: null,
+        maxFeePerGas: BigInt(1500),
+        maxPriorityFeePerGas: BigInt(1500),
+      } as Transaction;
+      expect(() => precheck.gasPrice(parsedTx, 1500)).to.not.throw();
+    });
   });
 
   describe('balance', async function () {
@@ -593,6 +641,36 @@ describe('Precheck', async function () {
       };
 
       expect(() => precheck.balance(tx, account.balance)).to.not.throw();
+    });
+
+    it('should calculate balance for type-2 tx using maxFeePerGas not sum', async function () {
+      // Using large wei values so the tinybar conversion does not mask the difference.
+      // maxFeePerGas * gasLimit = 100e9 * 21000 = 2_100_000e9
+      // (maxFeePerGas + maxPriorityFeePerGas) * gasLimit = 200e9 * 21000 = 4_200_000e9
+      // We set account balance (in tinybars) so that after weibar conversion it lands
+      // BETWEEN these two values.
+      const maxFee = BigInt(100) * BigInt(constants.TINYBAR_TO_WEIBAR_COEF); // 100 tinybars in wei
+      const maxPriority = BigInt(100) * BigInt(constants.TINYBAR_TO_WEIBAR_COEF);
+      const gasLim = BigInt(21000);
+      const val = BigInt(0);
+
+      const parsedTx = {
+        ...parsedTxWithMatchingChainId,
+        value: val,
+        gasPrice: null,
+        gasLimit: gasLim,
+        maxFeePerGas: maxFee,
+        maxPriorityFeePerGas: maxPriority,
+      } as Transaction;
+
+      // Correct cost (maxFeePerGas only): 100 * 21000 = 2_100_000 tinybars
+      // Wrong cost (sum):                 200 * 21000 = 4_200_000 tinybars
+      // Set balance to 3_000_000 tinybars -- passes with fix, fails with bug
+      const account = {
+        account: accountId,
+        balance: { balance: 3_000_000 },
+      };
+      expect(() => precheck.balance(parsedTx, account.balance)).to.not.throw();
     });
   });
 

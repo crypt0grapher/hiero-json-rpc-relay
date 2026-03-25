@@ -30,10 +30,12 @@ export class Block {
 
   /**
    * Base fee per gas (EIP-1559)
-   * Always zero, since there is no EIP-1559 style floating block capacity fees in Hedera,
-   * according to https://hips.hedera.com/hip/hip-415
+   * Hedera has no EIP-1559 style floating block capacity fees (HIP-415),
+   * but we return 0x1 (1 wei) instead of 0x0 because ethers.js and MetaMask
+   * treat BigInt(0) as falsy, skipping EIP-1559 fee computation entirely.
+   * This causes maxFeePerGas=undefined in getFeeData(), breaking tx submission.
    */
-  public readonly baseFeePerGas: string = '0x0';
+  public readonly baseFeePerGas: string = '0x1';
 
   /** Total gas used in block (hex string) */
   public readonly gasUsed: string = '0x0';

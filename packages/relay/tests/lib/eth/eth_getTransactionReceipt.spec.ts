@@ -6,6 +6,7 @@ import sinon, { createSandbox } from 'sinon';
 
 import { predefined } from '../../../src';
 import constants from '../../../src/lib/constants';
+import { transactionBlockCache } from '../../../src/lib/services/ethService/transactionBlockCache';
 import { RequestDetails } from '../../../src/lib/types';
 import RelayAssertions from '../../assertions';
 import { defaultErrorMessageHex } from '../../helpers';
@@ -460,5 +461,93 @@ describe('@ethGetTransactionReceipt eth_getTransactionReceipt tests', async func
 
     const expectedCumulativeHex = '0x' + blockGasUsed.toString(16);
     expect(receipt.cumulativeGasUsed).to.equal(expectedCumulativeHex);
+  });
+
+  describe('block-cache fallback', function () {
+    const phantomTxHash = '0xdeadbeef00000000000000000000000000000000000000000000000000000001';
+
+    this.afterEach(() => {
+      transactionBlockCache.clear();
+    });
+
+    it('should return a minimal receipt when hash is in the block cache and mirror has no individual entry', async function () {
+      // Pre-populate the block cache (simulates what getBlock() does)
+      transactionBlockCache.set(phantomTxHash, '0x3');
+
+      // Contract result lookup returns 404
+      restMock.onGet(`contracts/results/${phantomTxHash}`).reply(
+        404,
+        JSON.stringify({
+          _status: { messages: [{ message: 'No correlating transaction' }] },
+        }),
+      );
+      // Synthetic log lookup returns empty
+      restMock
+        .onGet(`contracts/results/logs?transaction.hash=${phantomTxHash}&limit=100&order=asc`)
+        .reply(200, JSON.stringify(EMPTY_LOGS_RESPONSE));
+      // Block-level contract results returns empty (no match in block either)
+      restMock.onGet(`contracts/results?block.number=${BLOCK_NUMBER}&limit=100&order=asc`).reply(
+        200,
+        JSON.stringify({
+          results: [],
+          links: { next: null },
+        }),
+      );
+      // Block metadata lookup
+      restMock.onGet(`blocks/${BLOCK_NUMBER}`).reply(200, JSON.stringify(DEFAULT_BLOCK));
+
+      stubBlockAndFeesFunc(sandbox);
+
+      const receipt = await ethImpl.getTransactionReceipt(phantomTxHash, requestDetails);
+
+      expect(receipt).to.exist;
+      if (!receipt) return;
+
+      expect(receipt.transactionHash).to.equal(phantomTxHash);
+      expect(receipt.blockNumber).to.equal('0x3');
+      expect(receipt.status).to.equal('0x1');
+      expect(receipt.gasUsed).to.equal('0x0');
+      expect(receipt.logs).to.be.an('array').with.lengthOf(0);
+    });
+
+    it('should NOT use the block-cache fallback when the regular contract result succeeds', async function () {
+      // Pre-populate the block cache
+      transactionBlockCache.set(defaultTxHash, '0xff');
+
+      // Regular contract result lookup succeeds
+      restMock
+        .onGet(`contracts/results/${defaultTxHash}`)
+        .reply(200, JSON.stringify(defaultDetailedContractResultByHash));
+      restMock.onGet(`contracts/${defaultDetailedContractResultByHash.created_contract_ids[0]}`).reply(404);
+      stubBlockAndFeesFunc(sandbox);
+
+      const receipt = await ethImpl.getTransactionReceipt(defaultTxHash, requestDetails);
+
+      expect(receipt).to.exist;
+      if (!receipt) return;
+
+      // The regular receipt has real data, not the fallback zero-gas values
+      expect(receipt.transactionHash).to.equal(defaultTxHash);
+      expect(receipt.gasUsed).to.not.equal('0x0');
+    });
+
+    it('should return null when hash is not in the block cache and mirror has no entry', async function () {
+      const unknownHash = '0x1111111111111111111111111111111111111111111111111111111111111111';
+
+      // Do NOT populate block cache
+      restMock.onGet(`contracts/results/${unknownHash}`).reply(
+        404,
+        JSON.stringify({
+          _status: { messages: [{ message: 'No correlating transaction' }] },
+        }),
+      );
+      restMock
+        .onGet(`contracts/results/logs?transaction.hash=${unknownHash}&limit=100&order=asc`)
+        .reply(200, JSON.stringify(EMPTY_LOGS_RESPONSE));
+
+      const receipt = await ethImpl.getTransactionReceipt(unknownHash, requestDetails);
+
+      expect(receipt).to.be.null;
+    });
   });
 });

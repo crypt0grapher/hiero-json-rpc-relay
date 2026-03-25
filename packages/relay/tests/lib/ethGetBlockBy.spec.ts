@@ -352,4 +352,84 @@ describe('eth_getBlockBy', async function () {
       expect(ratio).to.be.lessThan(2.5);
     });
   });
+
+  describe('isEvmTransaction', () => {
+    const isEvmTransaction = __test__.__private.isEvmTransaction;
+
+    it('returns true for a contract result with chain_id set', () => {
+      const contractResult = {
+        chain_id: '0x147',
+        r: '0xabc',
+        s: '0xdef',
+        v: 1,
+      };
+      expect(isEvmTransaction(contractResult)).to.be.true;
+    });
+
+    it('returns false for a contract result with chain_id=null', () => {
+      const contractResult = {
+        chain_id: null,
+        r: null,
+        s: null,
+        v: null,
+      };
+      expect(isEvmTransaction(contractResult)).to.be.false;
+    });
+
+    it('returns false for a contract result with chain_id=undefined', () => {
+      const contractResult = {
+        r: '0xabc',
+        s: '0xdef',
+        v: 1,
+      };
+      expect(isEvmTransaction(contractResult)).to.be.false;
+    });
+
+    it('returns false when chain_id is present but r, s, v are all null', () => {
+      // Edge case: chain_id set but no signature — not a genuine EVM transaction
+      const contractResult = {
+        chain_id: '0x147',
+        r: null,
+        s: null,
+        v: null,
+      };
+      expect(isEvmTransaction(contractResult)).to.be.false;
+    });
+
+    it('returns true when chain_id is present and at least one signature field is set', () => {
+      const contractResult = {
+        chain_id: '0x147',
+        r: '0xabc',
+        s: null,
+        v: null,
+      };
+      expect(isEvmTransaction(contractResult)).to.be.true;
+    });
+
+    it('returns false for a typical non-EVM contract result from mirror node', () => {
+      // Real-world shape of a non-EVM (SDK native) transaction as returned by mirror node
+      const nonEvmResult = {
+        hash: '0x3b913d06f464580c60663158a736f28871bacd819592b06c34faaf89df8d5ec4',
+        chain_id: null,
+        gas_price: null,
+        max_fee_per_gas: null,
+        max_priority_fee_per_gas: null,
+        r: null,
+        s: null,
+        type: null,
+        v: null,
+        nonce: null,
+        result: 'CONTRACT_REVERT_EXECUTED',
+      };
+      expect(isEvmTransaction(nonEvmResult)).to.be.false;
+    });
+
+    it('returns true for a typical EVM contract result from mirror node', () => {
+      expect(isEvmTransaction(defaultDetailedContractResults)).to.be.true;
+    });
+
+    it('returns false for an empty object', () => {
+      expect(isEvmTransaction({})).to.be.false;
+    });
+  });
 });

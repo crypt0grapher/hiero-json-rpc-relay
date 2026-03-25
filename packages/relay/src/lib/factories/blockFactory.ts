@@ -30,7 +30,7 @@ export class BlockFactory {
     const timestamp = timestampRange.from.substring(0, timestampRange.from.indexOf('.'));
 
     return new Block({
-      baseFeePerGas: constants.ZERO_HEX,
+      baseFeePerGas: constants.ONE_HEX, // 1 wei, not 0: ethers.js treats 0n as falsy, breaking EIP-1559 fee calc
       difficulty: constants.ZERO_HEX,
       extraData: constants.EMPTY_HEX,
       gasLimit: numberTo0x(constants.BLOCK_GAS_LIMIT),

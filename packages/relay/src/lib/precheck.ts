@@ -169,7 +169,14 @@ export class Precheck {
   gasPrice(tx: Transaction, networkGasPriceInWeiBars: number): void {
     const networkGasPrice = BigInt(networkGasPriceInWeiBars);
 
-    const txGasPrice = BigInt(tx.gasPrice || tx.maxFeePerGas! + tx.maxPriorityFeePerGas!);
+    // For type-2 (EIP-1559) transactions, maxFeePerGas is the fee cap -- the maximum the
+    // sender is willing to pay per unit of gas.  On Hedera with baseFee=0 (HIP-415), using
+    // maxFeePerGas alone is the correct bound.  The previous code summed maxFeePerGas +
+    // maxPriorityFeePerGas which inflated the value and let under-priced txs slip through.
+    //
+    // Note: We use `!= null` (not truthiness) because gasPrice can legitimately be 0n
+    // (e.g. paymaster-subsidized transactions).
+    const txGasPrice = tx.gasPrice != null ? BigInt(tx.gasPrice) : BigInt(tx.maxFeePerGas ?? 0);
 
     // **notice: Pass gasPrice precheck if txGasPrice is greater than the minimum network's gas price value,
     //          OR if the transaction is the deterministic deployment transaction (a special case),
@@ -216,7 +223,8 @@ export class Precheck {
       throw predefined.RESOURCE_NOT_FOUND(`Account balance unavailable for address: ${tx.from}.`);
     }
 
-    const txGasPrice = BigInt(tx.gasPrice || tx.maxFeePerGas! + tx.maxPriorityFeePerGas!);
+    // Same logic as gasPrice(): for type-2 txs, maxFeePerGas is the fee cap.
+    const txGasPrice = tx.gasPrice != null ? BigInt(tx.gasPrice) : BigInt(tx.maxFeePerGas ?? 0);
     const txTotalValue = tx.value + txGasPrice * tx.gasLimit;
     const accountBalanceInWeiBars = BigInt(accountBalance.balance) * BigInt(constants.TINYBAR_TO_WEIBAR_COEF);
 

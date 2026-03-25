@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { ConfigService } from '@hashgraph/json-rpc-config-service/dist/services';
 import { FileId } from '@hashgraph/sdk';
-import { Transaction as EthersTransaction } from 'ethers';
+import { ethers, Transaction as EthersTransaction } from 'ethers';
 import EventEmitter from 'events';
 import { Logger } from 'pino';
 import { Counter, Registry } from 'prom-client';
@@ -29,6 +29,7 @@ import {
 } from '../../../types';
 import HAPIService from '../../hapiService/hapiService';
 import { ICommonService, LockService, TransactionPoolService } from '../../index';
+import { transactionBlockCache } from '../transactionBlockCache';
 import { ITransactionService } from './ITransactionService';
 
 export class TransactionService implements ITransactionService {
@@ -214,18 +215,76 @@ export class TransactionService implements ITransactionService {
         requestDetails,
       );
 
-      // no tx found
-      if (!syntheticLogs.length) {
-        this.logger.trace(`no tx for %s`, hash);
-        return null;
+      if (syntheticLogs.length) {
+        return TransactionFactory.createTransactionFromLog(this.chain, syntheticLogs[0], 0);
       }
 
-      return TransactionFactory.createTransactionFromLog(this.chain, syntheticLogs[0], 0);
+      // Last-resort fallback: check block cache populated by getBlock()
+      const cachedBlockNumber = transactionBlockCache.get(hash);
+      if (cachedBlockNumber) {
+        this.logger.debug(`tx fallback: hash %s found in block cache (block %s)`, hash, cachedBlockNumber);
+
+        const blockNum = parseInt(cachedBlockNumber, 16);
+        const blockContractResults = await this.mirrorNodeClient.getContractResults(requestDetails, {
+          blockNumber: blockNum,
+        });
+
+        if (Array.isArray(blockContractResults)) {
+          const match = blockContractResults.find((cr) => cr.hash === hash);
+          if (match) {
+            const recoveredFrom = this.recoverTransactionSender(match);
+            const fromAddr =
+              recoveredFrom ??
+              (await this.common.resolveEvmAddress(match.from, requestDetails, [constants.TYPE_ACCOUNT]));
+            const toAddr = match.created_contract_ids?.includes(match.contract_id)
+              ? null
+              : await this.common.resolveEvmAddress(match.to, requestDetails);
+            match.chain_id = match.chain_id || this.chain;
+
+            return createTransactionFromContractResult({
+              ...match,
+              from: fromAddr,
+              to: toAddr,
+            });
+          }
+        }
+
+        // Construct minimal synthetic transaction from block metadata
+        const block = await this.mirrorNodeClient.getBlock(blockNum, requestDetails);
+        if (block) {
+          return TransactionFactory.createTransactionByType(0, {
+            accessList: undefined,
+            blockHash: toHash32(block.hash),
+            blockNumber: numberTo0x(block.number),
+            chainId: this.chain,
+            from: constants.ZERO_ADDRESS_HEX,
+            gas: numberTo0x(constants.TX_DEFAULT_GAS_DEFAULT),
+            gasPrice: constants.ZERO_HEX,
+            hash,
+            input: constants.ZERO_HEX_8_BYTE,
+            maxPriorityFeePerGas: constants.ZERO_HEX,
+            maxFeePerGas: constants.ZERO_HEX,
+            nonce: numberTo0x(0),
+            r: constants.ZERO_HEX,
+            s: constants.ZERO_HEX,
+            to: constants.ZERO_ADDRESS_HEX,
+            transactionIndex: constants.ZERO_HEX,
+            type: constants.ZERO_HEX,
+            v: constants.ZERO_HEX,
+            value: constants.ZERO_HEX,
+          });
+        }
+      }
+
+      // no tx found
+      this.logger.trace(`no tx for %s`, hash);
+      return null;
     }
 
-    const fromAddress = await this.common.resolveEvmAddress(contractResult.from, requestDetails, [
-      constants.TYPE_ACCOUNT,
-    ]);
+    const recoveredSender = this.recoverTransactionSender(contractResult);
+    const fromAddress =
+      recoveredSender ??
+      (await this.common.resolveEvmAddress(contractResult.from, requestDetails, [constants.TYPE_ACCOUNT]));
     const toAddress = contractResult.created_contract_ids.includes(contractResult.contract_id)
       ? null
       : await this.common.resolveEvmAddress(contractResult.to, requestDetails);
@@ -252,7 +311,15 @@ export class TransactionService implements ITransactionService {
 
     if (receiptResponse === null || receiptResponse.hash === undefined) {
       // handle synthetic transactions
-      return await this.handleSyntheticTransactionReceipt(hash, requestDetails);
+      const syntheticReceipt = await this.handleSyntheticTransactionReceipt(hash, requestDetails);
+      if (syntheticReceipt) {
+        return syntheticReceipt;
+      }
+
+      // Last-resort fallback: check if blockWorker cached the block number for
+      // this hash during a prior getBlock() call.  If so, query the mirror node
+      // for contract results / logs within that block and construct a receipt.
+      return await this.handleBlockCacheFallbackReceipt(hash, requestDetails);
     } else {
       const receipt = await this.handleRegularTransactionReceipt(receiptResponse, requestDetails);
       this.logger.trace(`receipt for %s found in block %s`, hash, receipt.blockNumber);
@@ -397,9 +464,12 @@ export class TransactionService implements ITransactionService {
       return this.getSyntheticTransactionByBlockAndIndex(blockParam, transactionIndex, requestDetails);
     }
 
+    const recoveredSender = this.recoverTransactionSender(contractResults[0]);
     const [resolvedToAddress, resolvedFromAddress] = await Promise.all([
       this.common.resolveEvmAddress(contractResults[0].to, requestDetails),
-      this.common.resolveEvmAddress(contractResults[0].from, requestDetails, [constants.TYPE_ACCOUNT]),
+      recoveredSender
+        ? Promise.resolve(recoveredSender)
+        : this.common.resolveEvmAddress(contractResults[0].from, requestDetails, [constants.TYPE_ACCOUNT]),
     ]);
 
     return createTransactionFromContractResult({
@@ -488,8 +558,11 @@ export class TransactionService implements ITransactionService {
         transactionIndex: numberTo0x(receiptResponse.transaction_index),
       });
     });
+    const recoveredSender = this.recoverTransactionSender(receiptResponse);
     const [from, to] = await Promise.all([
-      this.common.resolveEvmAddress(receiptResponse.from, requestDetails),
+      recoveredSender
+        ? Promise.resolve(recoveredSender)
+        : this.common.resolveEvmAddress(receiptResponse.from, requestDetails),
       this.common.resolveEvmAddress(receiptResponse.to, requestDetails),
     ]);
 
@@ -574,12 +647,152 @@ export class TransactionService implements ITransactionService {
   }
 
   /**
+   * Last-resort fallback for transaction receipts.
+   *
+   * When `getTransactionReceipt()` cannot find a contract result or synthetic
+   * logs for a given hash, it checks the in-process `transactionBlockCache`
+   * that `blockWorker.getBlock()` populates.  If the hash is found there, we
+   * know the block number and can query the mirror node for contract results
+   * and logs within that block to construct a minimal receipt.
+   *
+   * This addresses "phantom" transactions -- hashes injected into block
+   * responses by `populateSyntheticTransactions()` that have no standalone
+   * mirror-node entry (e.g. CryptoTransfer between ECDSA accounts).
+   *
+   * NOTE: The cache is process-local (Map).  When the relay runs with
+   * `WORKERS_POOL_ENABLED=true`, blockWorker executes in a separate V8
+   * isolate and populates its own cache instance, making this fallback a
+   * no-op (cache miss).  In local-execution mode (the default and the
+   * Goliath deployment mode) both run in the same isolate and the fallback
+   * works as intended.
+   */
+  private async handleBlockCacheFallbackReceipt(
+    hash: string,
+    requestDetails: RequestDetails,
+  ): Promise<ITransactionReceipt | null> {
+    const cachedBlockNumber = transactionBlockCache.get(hash);
+    if (!cachedBlockNumber) {
+      return null;
+    }
+
+    this.logger.debug(`receipt fallback: hash %s found in block cache (block %s)`, hash, cachedBlockNumber);
+
+    const blockNum = parseInt(cachedBlockNumber, 16);
+
+    // Try to find the transaction in the block's contract results first
+    const contractResults = await this.mirrorNodeClient.getContractResults(requestDetails, {
+      blockNumber: blockNum,
+    });
+
+    if (Array.isArray(contractResults)) {
+      const matchingResult = contractResults.find((cr) => cr.hash === hash);
+      if (matchingResult && matchingResult.hash !== undefined) {
+        const receipt = await this.handleRegularTransactionReceipt(matchingResult, requestDetails);
+        this.logger.debug(
+          `receipt fallback: constructed regular receipt for %s from block %s`,
+          hash,
+          cachedBlockNumber,
+        );
+        return receipt;
+      }
+    }
+
+    // Fall back to constructing a minimal synthetic receipt from the block
+    // metadata alone.  We know the hash belongs to this block, so we can
+    // build a "success, zero-gas" receipt that satisfies EVM clients.
+    const block = await this.mirrorNodeClient.getBlock(blockNum, requestDetails);
+    if (!block) {
+      return null;
+    }
+
+    const gasPriceForTimestamp = await this.common.getCurrentGasPriceForBlock(block.hash, requestDetails);
+
+    const receipt: ITransactionReceipt = {
+      blockHash: toHash32(block.hash),
+      blockNumber: numberTo0x(block.number),
+      contractAddress: constants.ZERO_ADDRESS_HEX,
+      cumulativeGasUsed: constants.ZERO_HEX,
+      effectiveGasPrice: gasPriceForTimestamp,
+      from: constants.ZERO_ADDRESS_HEX,
+      gasUsed: constants.ZERO_HEX,
+      logs: [],
+      logsBloom: constants.EMPTY_BLOOM,
+      root: constants.DEFAULT_ROOT_HASH,
+      status: constants.ONE_HEX,
+      to: constants.ZERO_ADDRESS_HEX,
+      transactionHash: hash,
+      transactionIndex: constants.ZERO_HEX,
+      type: constants.ZERO_HEX,
+    };
+
+    this.logger.debug(`receipt fallback: constructed minimal receipt for %s in block %s`, hash, cachedBlockNumber);
+
+    return receipt;
+  }
+
+  /**
    * Removes the '0x' prefix from a string if present
    * @param input The input string
    * @returns {string} The input string without the '0x' prefix
    */
   private prune0x(input: string): string {
     return input.startsWith(constants.EMPTY_HEX) ? input.substring(2) : input;
+  }
+
+  /**
+   * Recovers the EVM sender address from a mirror-node contract result
+   * using ecrecover (ECDSA public key recovery from r, s, v signature fields).
+   *
+   * This avoids a mirror-node `resolveEvmAddress` round-trip for transactions
+   * that carry valid ECDSA signatures (all genuine EthereumTransactions do).
+   *
+   * @param contractResult - A contract result object from the mirror node.
+   * @returns The checksummed EVM address, or null if recovery fails.
+   */
+  private recoverTransactionSender(contractResult: any): string | null {
+    try {
+      if (!contractResult.r || !contractResult.s || contractResult.v == null) {
+        return null;
+      }
+
+      const txType = contractResult.type ?? 0;
+      const chainId = contractResult.chain_id
+        ? typeof contractResult.chain_id === 'string' && contractResult.chain_id.startsWith('0x')
+          ? parseInt(contractResult.chain_id, 16)
+          : Number(contractResult.chain_id)
+        : Number(this.chain);
+
+      const txFields: any = {
+        type: txType,
+        nonce: contractResult.nonce ?? 0,
+        gasLimit: contractResult.gas_limit,
+        to: contractResult.to ? contractResult.to.substring(0, 42) : undefined,
+        value: contractResult.amount ?? 0,
+        data: contractResult.function_parameters || contractResult.call_data || '0x',
+        chainId,
+      };
+
+      if (txType === 2) {
+        txFields.maxFeePerGas = contractResult.max_fee_per_gas;
+        txFields.maxPriorityFeePerGas = contractResult.max_priority_fee_per_gas;
+      } else {
+        txFields.gasPrice = contractResult.gas_price;
+      }
+
+      const tx = ethers.Transaction.from({
+        ...txFields,
+        signature: {
+          r: contractResult.r,
+          s: contractResult.s,
+          v: contractResult.v,
+        },
+      });
+
+      return tx.from; // Recovered checksummed address
+    } catch (e: any) {
+      this.logger.debug(e, `ecrecover failed for tx`);
+      return null;
+    }
   }
 
   /**

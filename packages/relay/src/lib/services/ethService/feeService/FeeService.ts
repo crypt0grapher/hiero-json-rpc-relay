@@ -148,7 +148,7 @@ export class FeeService implements IFeeService {
     const feeHistory: IFeeHistory = {
       // This includes the next block after the newest of the returned range, because this value can be derived
       // from the newest block (this is where this plus one comes from). Only zeroes are returned in our case.
-      baseFeePerGas: Array(blockCount + 1).fill(constants.ZERO_HEX),
+      baseFeePerGas: Array(blockCount + 1).fill(constants.ONE_HEX), // 1 wei: ethers.js treats 0n as falsy
       gasUsedRatio: Array(blockCount).fill(constants.DEFAULT_GAS_USED_RATIO),
       oldestBlock: numberTo0x(oldestBlockNumber),
     };
@@ -186,7 +186,7 @@ export class FeeService implements IFeeService {
 
     // get fees from oldest to newest blocks
     for (let blockNumber = oldestBlockNumber; blockNumber <= newestBlockNumber; blockNumber++) {
-      feeHistory.baseFeePerGas?.push(constants.ZERO_HEX);
+      feeHistory.baseFeePerGas?.push(constants.ONE_HEX); // 1 wei: ethers.js treats 0n as falsy
       feeHistory.gasUsedRatio?.push(constants.DEFAULT_GAS_USED_RATIO);
     }
 
@@ -196,7 +196,7 @@ export class FeeService implements IFeeService {
 
     if (latestBlockNumber > newestBlockNumber) {
       // get next block fee if the newest block is not the latest
-      nextBaseFeePerGas = constants.ZERO_HEX;
+      nextBaseFeePerGas = constants.ONE_HEX; // 1 wei: ethers.js treats 0n as falsy
     }
 
     if (nextBaseFeePerGas) {
