@@ -47,6 +47,7 @@ describe('@ethGetTransactionCount eth_getTransactionCount spec', async function 
   const accountTimestampFilteredPath = `accounts/${MOCK_ACCOUNT_ADDR}?transactiontype=ETHEREUMTRANSACTION&timestamp=lte:${mockData.blocks.blocks[2].timestamp.to}&limit=2&order=desc`;
   const contractPath = `contracts/${MOCK_ACCOUNT_ADDR}`;
   const contractResultsPath = `contracts/results/${transactionId}`;
+  const contractResultsByFromPath = `contracts/results?from=${MOCK_ACCOUNT_ADDR}&limit=1&order=desc`;
   const earliestBlockPath = `blocks?limit=1&order=asc`;
   const blockPath = `blocks/${blockNumber}`;
   const latestBlockPath = `blocks?limit=1&order=desc`;
@@ -61,6 +62,8 @@ describe('@ethGetTransactionCount eth_getTransactionCount spec', async function 
     restMock.onGet('network/fees').reply(200, JSON.stringify(DEFAULT_NETWORK_FEES));
     restMock.onGet(blockPath).reply(200, JSON.stringify(mockData.blocks.blocks[2]));
     restMock.onGet(accountPath).reply(200, JSON.stringify(mockData.account));
+    // Default: contract results returns empty so nonce floor is 0 (no effect on existing tests)
+    restMock.onGet(contractResultsByFromPath).reply(200, JSON.stringify({ results: [], links: { next: null } }));
     restMock.onGet(latestBlockPath).reply(
       202,
       JSON.stringify({
@@ -321,6 +324,83 @@ describe('@ethGetTransactionCount eth_getTransactionCount spec', async function 
     const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
     expect(nonce).to.exist;
     expect(nonce).to.equal(constants.ONE_HEX);
+  });
+
+  describe('nonce floor from contract results', () => {
+    const contractResultsByFromPath = `contracts/results?from=${MOCK_ACCOUNT_ADDR}&limit=1&order=desc`;
+
+    it('should return contract result nonce + 1 when mirror nonce is stale', async () => {
+      // Mirror reports ethereum_nonce=7 but the latest successful tx used nonce 9
+      restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: 7 }));
+      restMock
+        .onGet(contractResultsByFromPath)
+        .reply(200, JSON.stringify({ results: [{ nonce: 9, from: MOCK_ACCOUNT_ADDR }], links: { next: null } }));
+
+      const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
+      expect(nonce).to.exist;
+      // Should return 10 (9 + 1), not the stale mirror value 7
+      expect(nonce).to.equal(numberTo0x(10));
+    });
+
+    it('should return mirror nonce when it is already >= contract result floor', async () => {
+      // Mirror reports ethereum_nonce=10 and latest contract result used nonce 9
+      restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: 10 }));
+      restMock
+        .onGet(contractResultsByFromPath)
+        .reply(200, JSON.stringify({ results: [{ nonce: 9, from: MOCK_ACCOUNT_ADDR }], links: { next: null } }));
+
+      const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
+      expect(nonce).to.exist;
+      // Mirror nonce 10 >= floor 10 (9+1), so mirror nonce wins
+      expect(nonce).to.equal(numberTo0x(10));
+    });
+
+    it('should fall back to mirror nonce when contract results endpoint returns empty', async () => {
+      restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: 7 }));
+      restMock.onGet(contractResultsByFromPath).reply(200, JSON.stringify({ results: [], links: { next: null } }));
+
+      const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
+      expect(nonce).to.exist;
+      expect(nonce).to.equal(numberTo0x(7));
+    });
+
+    it('should fall back to mirror nonce when contract results endpoint fails', async () => {
+      restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: 7 }));
+      restMock.onGet(contractResultsByFromPath).reply(500, 'Internal Server Error');
+
+      const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
+      expect(nonce).to.exist;
+      expect(nonce).to.equal(numberTo0x(7));
+    });
+
+    it('should use cached nonce floor on subsequent calls', async () => {
+      // First call: mirror stale, contract result provides floor
+      restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: 5 }));
+      restMock
+        .onGet(contractResultsByFromPath)
+        .reply(200, JSON.stringify({ results: [{ nonce: 8, from: MOCK_ACCOUNT_ADDR }], links: { next: null } }));
+
+      const nonce1 = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
+      expect(nonce1).to.equal(numberTo0x(9));
+
+      // Second call: contract results now returns 404, but cached floor should persist
+      restMock.onGet(contractResultsByFromPath).reply(404, 'Not Found');
+
+      const nonce2 = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
+      expect(nonce2).to.equal(numberTo0x(9));
+    });
+
+    it('should handle contract result with nonce=0 correctly', async () => {
+      restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: 0 }));
+      restMock
+        .onGet(contractResultsByFromPath)
+        .reply(200, JSON.stringify({ results: [{ nonce: 0, from: MOCK_ACCOUNT_ADDR }], links: { next: null } }));
+
+      const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
+      expect(nonce).to.exist;
+      // Contract result nonce 0 means floor = 1, mirror nonce 0 < 1, so return 1
+      expect(nonce).to.equal(numberTo0x(1));
+    });
   });
 
   it('should return nonce when block hash is passed', async () => {
