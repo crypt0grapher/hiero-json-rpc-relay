@@ -841,7 +841,24 @@ export class TransactionService implements ITransactionService {
     // Handle submission errors - throws for definitive failures, returns for MN polling cases
     await this.handleSubmissionError(error, parsedTx, requestDetails);
 
-    // At this point, either no error or a post-execution failure that needs MN polling
+    // At this point, either no error or a post-execution failure that needs MN polling.
+    // Update the nonce floor cache so the next eth_getTransactionCount call returns the
+    // correct next nonce even before the mirror catches up. This closes the window where
+    // back-to-back sends fail because both mirror account and contract_results endpoints
+    // still reflect the pre-submission state.
+    if (parsedTx.from && parsedTx.nonce != null) {
+      const floorKey = `${constants.CACHE_KEY.NONCE_FLOOR}_${parsedTx.from.toLowerCase()}`;
+      const newFloor = parsedTx.nonce + 1;
+      try {
+        const existingFloor = await this.cacheService.getAsync(floorKey, 'updateNonceFloor');
+        if (existingFloor == null || Number(existingFloor) < newFloor) {
+          await this.cacheService.set(floorKey, newFloor, 'updateNonceFloor', constants.NONCE_FLOOR_CACHE_TTL_MS);
+        }
+      } catch (e: any) {
+        this.logger.debug(`Failed to update nonce floor for ${parsedTx.from}: ${e.message}`);
+      }
+    }
+
     return this.getTransactionHashFromMirrorNode(submittedTransactionId, error, requestDetails);
   }
 
