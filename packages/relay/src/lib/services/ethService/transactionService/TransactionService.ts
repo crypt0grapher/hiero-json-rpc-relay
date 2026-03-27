@@ -938,32 +938,6 @@ export class TransactionService implements ITransactionService {
             throw predefined.NONCE_TOO_LOW(parsedTx.nonce, accountNonce);
           }
         }
-
-        // Equal case: consensus rejected nonce N, but mirror still reports ethereum_nonce = N.
-        // This means the nonce was consumed on-chain but the mirror hasn't caught up yet.
-        // Advance the nonce floor cache to N+1 so eth_getTransactionCount returns the correct
-        // next nonce, breaking the deadlock where callers keep retrying with the same stale nonce.
-        if (accountNonce != null && accountNonce === parsedTx.nonce && parsedTx.from) {
-          const floorKey = `${constants.CACHE_KEY.NONCE_FLOOR}_${parsedTx.from.toLowerCase()}`;
-          const newFloor = parsedTx.nonce + 1;
-          try {
-            const existingFloor = await this.cacheService.getAsync(floorKey, 'wrongNonceFloorAdvance');
-            if (existingFloor == null || Number(existingFloor) < newFloor) {
-              await this.cacheService.set(
-                floorKey,
-                newFloor,
-                'wrongNonceFloorAdvance',
-                constants.NONCE_FLOOR_CACHE_TTL_MS,
-              );
-              this.logger.info(
-                `[WRONG_NONCE] Advanced nonce floor for ${parsedTx.from} from ${existingFloor ?? 'null'} to ${newFloor} (consensus rejected nonce ${parsedTx.nonce} while mirror reports ${accountNonce})`,
-              );
-            }
-          } catch (e: any) {
-            this.logger.debug(`Failed to update nonce floor for ${parsedTx.from}: ${e.message}`);
-          }
-          throw predefined.NONCE_TOO_LOW(parsedTx.nonce, newFloor);
-        }
       }
 
       // All other pre-execution failures throw TRANSACTION_REJECTED (-32003)

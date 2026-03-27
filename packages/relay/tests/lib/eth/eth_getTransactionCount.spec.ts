@@ -401,43 +401,6 @@ describe('@ethGetTransactionCount eth_getTransactionCount spec', async function 
       // Contract result nonce 0 means floor = 1, mirror nonce 0 < 1, so return 1
       expect(nonce).to.equal(numberTo0x(1));
     });
-
-    /**
-     * Regression test for the nonce deadlock bug.
-     *
-     * After handleSubmissionError() advances the nonce floor cache on WRONG_NONCE (equal case),
-     * eth_getTransactionCount must return the cached floor even when both the mirror node
-     * ethereum_nonce and the contract results endpoint report stale (lower) values.
-     *
-     * This test simulates the post-fix state: the nonce floor cache has been pre-set to 25
-     * (as handleSubmissionError would do after a WRONG_NONCE with tx nonce 24 = mirror nonce 24).
-     * Mirror node still reports ethereum_nonce = 24 (stale), and contract results reports
-     * max_nonce = 19 (floor = 20). The cached floor of 25 should win.
-     *
-     * This test PASSES against the current code because it only tests the read path
-     * (getAccountLatestEthereumNonce), which already uses Math.max(mirrorNonce, nonceFloor).
-     * The bug is that the floor is never WRITTEN on the WRONG_NONCE equal-case path.
-     */
-    it('should return WRONG_NONCE-advanced floor over stale mirror nonce and contract results', async () => {
-      // Pre-set the nonce floor cache to 25 (simulating what handleSubmissionError would do
-      // after WRONG_NONCE with tx nonce 24 and mirror ethereum_nonce 24)
-      const advancedFloor = 25;
-      const floorKey = `${constants.CACHE_KEY.NONCE_FLOOR}_${MOCK_ACCOUNT_ADDR.toLowerCase()}`;
-      await cacheService.set(floorKey, advancedFloor, 'test', constants.NONCE_FLOOR_CACHE_TTL_MS);
-
-      // Mirror node reports stale ethereum_nonce = 24
-      restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: 24 }));
-
-      // Contract results reports max nonce = 19 (floor would be 20, but cached 25 is higher)
-      restMock
-        .onGet(contractResultsByFromPath)
-        .reply(200, JSON.stringify({ results: [{ nonce: 19, from: MOCK_ACCOUNT_ADDR }], links: { next: null } }));
-
-      const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
-      expect(nonce).to.exist;
-      // The cached floor of 25 should win over both mirror nonce (24) and contract result floor (20)
-      expect(nonce).to.equal(numberTo0x(advancedFloor));
-    });
   });
 
   it('should return nonce when block hash is passed', async () => {

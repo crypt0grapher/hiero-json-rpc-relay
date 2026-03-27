@@ -1211,7 +1211,7 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
           expect(wasAccountEndpointCalled()).to.be.true;
         });
 
-        it('should throw NONCE_TOO_LOW and advance floor when Mirror Node nonce equals tx nonce (equal case)', async function () {
+        it('should throw TRANSACTION_REJECTED when Mirror Node cannot determine nonce discrepancy', async function () {
           // Create transaction with specific nonce
           const txWithNonce = {
             ...transaction,
@@ -1227,17 +1227,16 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
           );
           sdkClientStub.submitEthereumTransaction.throws(wrongNonceError);
 
-          // Reset the account mock and set same nonce as transaction (equal case)
+          // Reset the account mock and set same nonce as transaction (cannot determine difference)
           restMock.resetHistory();
           restMock.onGet(accountEndpoint).reply(200, JSON.stringify({ ...ACCOUNT_RES, ethereum_nonce: 5 }));
 
-          // After the fix: equal case throws NONCE_TOO_LOW(5, 6) and advances cache
           await expect(ethImpl.sendRawTransaction(signed, requestDetails))
             .to.be.rejectedWith(JsonRpcError)
             .and.eventually.satisfy(
               (error: JsonRpcError) =>
-                expect(error.code).to.equal(predefined.NONCE_TOO_LOW(5, 6).code) &&
-                expect(error.message).to.include('Nonce too low'),
+                expect(error.code).to.equal(predefined.TRANSACTION_REJECTED('WRONG_NONCE').code) &&
+                expect(error.message).to.include(predefined.TRANSACTION_REJECTED('WRONG_NONCE').message),
             );
 
           // Verify accounts endpoint WAS called
@@ -1284,100 +1283,6 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
 
           // Verify accounts endpoint WAS called
           expect(wasAccountEndpointCalled()).to.be.true;
-        });
-
-        /**
-         * Regression tests for the nonce deadlock bug.
-         *
-         * The deadlock occurs when:
-         * 1. Consensus returns WRONG_NONCE for tx nonce N
-         * 2. Mirror node reports ethereum_nonce = N (equal case)
-         * 3. handleSubmissionError() falls through to TRANSACTION_REJECTED without updating the
-         *    nonce floor cache
-         * 4. eth_getTransactionCount keeps returning N (stale), causing infinite nonce oscillation
-         *
-         * The fix (task-002) should:
-         * - In the equal case, advance the nonce floor cache to N+1
-         * - Throw NONCE_TOO_LOW(N, N+1) so the caller knows the correct next nonce
-         *
-         * These tests describe the DESIRED behavior. They will FAIL against the current code
-         * because the current code throws TRANSACTION_REJECTED and does not update the cache.
-         */
-        it('should advance nonce floor cache when WRONG_NONCE and tx nonce equals account nonce', async function () {
-          // Scenario: consensus rejected nonce 24, mirror reports ethereum_nonce = 24.
-          // The nonce was already consumed on-chain but mirror hasn't incremented yet.
-          // Desired behavior: advance floor cache to 25 and throw NONCE_TOO_LOW(24, 25).
-          const txNonce = 24;
-          const txWithNonce = {
-            ...transaction,
-            nonce: txNonce,
-          };
-          const signed = await signTransaction(txWithNonce);
-
-          // SDK throws WRONG_NONCE
-          const wrongNonceError = new SDKClientError(
-            { status: Status.WrongNonce, message: 'WRONG_NONCE' },
-            'WRONG_NONCE',
-            transactionIdServicesFormat,
-          );
-          sdkClientStub.submitEthereumTransaction.throws(wrongNonceError);
-
-          // Mirror returns ethereum_nonce = 24 (same as tx nonce — the equal case)
-          restMock.resetHistory();
-          restMock.onGet(accountEndpoint).reply(200, JSON.stringify({ ...ACCOUNT_RES, ethereum_nonce: txNonce }));
-
-          // The call should reject with NONCE_TOO_LOW(24, 25)
-          // CURRENT CODE FAILS HERE: throws TRANSACTION_REJECTED('WRONG_NONCE') instead
-          await expect(ethImpl.sendRawTransaction(signed, requestDetails))
-            .to.be.rejectedWith(JsonRpcError)
-            .and.eventually.satisfy(
-              (error: JsonRpcError) =>
-                expect(error.code).to.equal(predefined.NONCE_TOO_LOW(txNonce, txNonce + 1).code) &&
-                expect(error.message).to.include('Nonce too low'),
-            );
-
-          // Verify the nonce floor cache was advanced to 25
-          const floorKey = `${constants.CACHE_KEY.NONCE_FLOOR}_${accountAddress.toLowerCase()}`;
-          const cachedFloor = await cacheService.getAsync(floorKey, 'test');
-          expect(cachedFloor).to.equal(txNonce + 1);
-        });
-
-        it('should NOT advance nonce floor cache when WRONG_NONCE and tx nonce > account nonce (too high)', async function () {
-          // Scenario: tx nonce 10, mirror reports ethereum_nonce = 5.
-          // This is a genuine "nonce too high" — do NOT advance the floor cache.
-          const txNonce = 10;
-          const mirrorNonce = 5;
-          const txWithHighNonce = {
-            ...transaction,
-            nonce: txNonce,
-          };
-          const signed = await signTransaction(txWithHighNonce);
-
-          // SDK throws WRONG_NONCE
-          const wrongNonceError = new SDKClientError(
-            { status: Status.WrongNonce, message: 'WRONG_NONCE' },
-            'WRONG_NONCE',
-            transactionIdServicesFormat,
-          );
-          sdkClientStub.submitEthereumTransaction.throws(wrongNonceError);
-
-          // Mirror returns ethereum_nonce = 5 (lower than tx nonce 10)
-          restMock.resetHistory();
-          restMock.onGet(accountEndpoint).reply(200, JSON.stringify({ ...ACCOUNT_RES, ethereum_nonce: mirrorNonce }));
-
-          // Should throw NONCE_TOO_HIGH(10, 5) — same as existing test
-          await expect(ethImpl.sendRawTransaction(signed, requestDetails))
-            .to.be.rejectedWith(JsonRpcError)
-            .and.eventually.satisfy(
-              (error: JsonRpcError) =>
-                expect(error.code).to.equal(predefined.NONCE_TOO_HIGH(txNonce, mirrorNonce).code) &&
-                expect(error.message).to.include('Nonce too high'),
-            );
-
-          // Verify the nonce floor cache was NOT written (should still be null)
-          const floorKey = `${constants.CACHE_KEY.NONCE_FLOOR}_${accountAddress.toLowerCase()}`;
-          const cachedFloor = await cacheService.getAsync(floorKey, 'test');
-          expect(cachedFloor).to.be.null;
         });
       });
     });
