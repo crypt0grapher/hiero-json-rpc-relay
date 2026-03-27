@@ -431,11 +431,9 @@ export class AccountService implements IAccountService {
       const nonceFloor = await this.getContractResultNonceFloor(address, requestDetails);
       const effectiveNonce = Math.max(mirrorNonce, nonceFloor);
 
-      if (effectiveNonce > mirrorNonce) {
-        this.logger.warn(
-          `Stale mirror ethereum_nonce detected for ${address}: mirror=${mirrorNonce}, contractResultFloor=${nonceFloor}, returning=${effectiveNonce}`,
-        );
-      }
+      this.logger.info(
+        `[NONCE-FLOOR] address=${address} mirrorNonce=${mirrorNonce} nonceFloor=${nonceFloor} effectiveNonce=${effectiveNonce}`,
+      );
 
       return numberTo0x(effectiveNonce);
     }
