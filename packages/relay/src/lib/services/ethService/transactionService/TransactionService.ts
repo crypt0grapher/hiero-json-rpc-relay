@@ -921,21 +921,31 @@ export class TransactionService implements ITransactionService {
         } else {
           this.wrongNonceMetric.labels(this.lockService.getStrategyType()).inc();
         }
-        let accountNonce: number | null = null;
-        try {
-          accountNonce = (await this.mirrorNodeClient.getAccount(parsedTx.from!, requestDetails))?.ethereum_nonce;
-        } catch (mirrorNodeError) {
-          // Mirror Node request failed (e.g., 404, 429, 5xx)
-          // Simply ignore and fallback to the original rejection to avoid masking the true error
-          this.logger.debug(mirrorNodeError, `Failed to fetch account nonce for WRONG_NONCE error handling`);
+
+        // Set WRONG_NONCE evidence — tells both this path and eth_getTransactionCount
+        // to treat mirror nonce as suspect if it's ahead of contract results
+        if (parsedTx.from) {
+          try {
+            const evidenceKey = `wrong_nonce_${parsedTx.from.toLowerCase()}`;
+            await this.cacheService.set(evidenceKey, 'true', 'wrongNonceEvidence', constants.NONCE_FLOOR_CACHE_TTL_MS);
+          } catch (e: any) {
+            this.logger.debug(`Failed to set WRONG_NONCE evidence for ${parsedTx.from}: ${e.message}`);
+          }
         }
 
-        // Determine if nonce is too high or too low
-        if (accountNonce != null && accountNonce !== parsedTx.nonce) {
-          if (parsedTx.nonce > accountNonce) {
-            throw predefined.NONCE_TOO_HIGH(parsedTx.nonce, accountNonce);
+        // Resolve effective nonce using the SAME authority as eth_getTransactionCount
+        let effectiveNonce: number | null = null;
+        try {
+          effectiveNonce = await this.resolveEffectiveNonce(parsedTx.from!, requestDetails);
+        } catch (e: any) {
+          this.logger.debug(e, `Failed to resolve effective nonce for WRONG_NONCE handling`);
+        }
+
+        if (effectiveNonce != null && effectiveNonce !== parsedTx.nonce) {
+          if (parsedTx.nonce > effectiveNonce) {
+            throw predefined.NONCE_TOO_HIGH(parsedTx.nonce, effectiveNonce);
           } else {
-            throw predefined.NONCE_TOO_LOW(parsedTx.nonce, accountNonce);
+            throw predefined.NONCE_TOO_LOW(parsedTx.nonce, effectiveNonce);
           }
         }
       }
@@ -947,6 +957,63 @@ export class TransactionService implements ITransactionService {
     // Post-execution failure (e.g. CONTRACT_REVERT_EXECUTED, INVALID_ALIAS_KEY, etc.)
     // proceed to allow MN polling for transaction hash
     return;
+  }
+
+  /**
+   * Resolves the effective pending nonce for an address by unifying mirror node
+   * and contract results data. When WRONG_NONCE evidence exists and mirror nonce
+   * is ahead of the contract results floor, mirror is considered inflated and
+   * the contract results floor is preferred.
+   *
+   * This MUST produce the same nonce that eth_getTransactionCount would return,
+   * so that handleSubmissionError classifications agree with the read path.
+   *
+   * @param address - The EVM address to resolve nonce for
+   * @param requestDetails - Request details for logging and tracking
+   * @returns The effective nonce, or null if the account cannot be found
+   */
+  private async resolveEffectiveNonce(address: string, requestDetails: RequestDetails): Promise<number | null> {
+    const accountData = await this.mirrorNodeClient.getAccount(address, requestDetails);
+    if (!accountData) return null;
+    const mirrorNonce = accountData.ethereum_nonce !== null ? accountData.ethereum_nonce : 1;
+
+    let contractResultsFloor = 0;
+    try {
+      const cacheKey = `${constants.CACHE_KEY.NONCE_FLOOR}_${address.toLowerCase()}`;
+      const cached = await this.cacheService.getAsync(cacheKey, 'resolveEffectiveNonce');
+      if (cached != null) {
+        contractResultsFloor = Number(cached);
+      } else {
+        const results = await this.mirrorNodeClient.getContractResults(
+          requestDetails,
+          { from: address },
+          { limit: 1, order: constants.ORDER.DESC },
+        );
+        if (Array.isArray(results) && results.length > 0 && results[0].nonce != null) {
+          contractResultsFloor = results[0].nonce + 1;
+          await this.cacheService.set(
+            cacheKey,
+            contractResultsFloor,
+            'resolveEffectiveNonce',
+            constants.NONCE_FLOOR_CACHE_TTL_MS,
+          );
+        }
+      }
+    } catch (e: any) {
+      this.logger.debug(`Failed to get contract results floor for ${address}: ${e.message}`);
+    }
+
+    const evidenceKey = `wrong_nonce_${address.toLowerCase()}`;
+    const hasEvidence = await this.cacheService.getAsync(evidenceKey, 'wrongNonceEvidence');
+
+    if (hasEvidence && contractResultsFloor > 0 && mirrorNonce > contractResultsFloor) {
+      this.logger.info(
+        `[WRONG_NONCE] address=${address} mirrorNonce=${mirrorNonce} suspect (WRONG_NONCE evidence), using contractResultsFloor=${contractResultsFloor}`,
+      );
+      return contractResultsFloor;
+    }
+
+    return Math.max(mirrorNonce, contractResultsFloor);
   }
 
   /**

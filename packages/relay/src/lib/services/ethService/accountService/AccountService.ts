@@ -429,11 +429,24 @@ export class AccountService implements IAccountService {
       // the correct mirror nonce with a stale value, causing eth_getTransactionCount
       // to return a nonce that consensus has already consumed.
       const nonceFloor = await this.getContractResultNonceFloor(address, requestDetails);
-      const effectiveNonce = Math.max(mirrorNonce, nonceFloor);
 
-      this.logger.info(
-        `[NONCE-FLOOR] address=${address} mirrorNonce=${mirrorNonce} nonceFloor=${nonceFloor} effectiveNonce=${effectiveNonce}`,
-      );
+      // Check for WRONG_NONCE evidence — if mirror is ahead of contract results
+      // and this address recently hit WRONG_NONCE, mirror nonce is inflated
+      const evidenceKey = `wrong_nonce_${address.toLowerCase()}`;
+      const hasEvidence = await this.cacheService.getAsync(evidenceKey, 'wrongNonceEvidence');
+
+      let effectiveNonce: number;
+      if (hasEvidence && nonceFloor > 0 && mirrorNonce > nonceFloor) {
+        effectiveNonce = nonceFloor;
+        this.logger.info(
+          `[NONCE-FLOOR] address=${address} mirrorNonce=${mirrorNonce} suspect (WRONG_NONCE evidence), using contractResultsFloor=${nonceFloor}`,
+        );
+      } else {
+        effectiveNonce = Math.max(mirrorNonce, nonceFloor);
+        this.logger.info(
+          `[NONCE-FLOOR] address=${address} mirrorNonce=${mirrorNonce} nonceFloor=${nonceFloor} effectiveNonce=${effectiveNonce}`,
+        );
+      }
 
       return numberTo0x(effectiveNonce);
     }

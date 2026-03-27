@@ -403,6 +403,60 @@ describe('@ethGetTransactionCount eth_getTransactionCount spec', async function 
     });
   });
 
+  describe('WRONG_NONCE evidence-aware nonce resolution', () => {
+    const contractResultsByFromPath = `contracts/results?from=${MOCK_ACCOUNT_ADDR}&limit=1&order=desc`;
+
+    it('should prefer contract results floor over inflated mirror nonce when WRONG_NONCE evidence exists', async () => {
+      // Pre-set WRONG_NONCE evidence flag in cache
+      const evidenceKey = `wrong_nonce_${MOCK_ACCOUNT_ADDR.toLowerCase()}`;
+      await cacheService.set(evidenceKey, 'true', 'test', constants.NONCE_FLOOR_CACHE_TTL_MS);
+
+      // Mirror reports inflated ethereum_nonce=24
+      restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: 24 }));
+      // Contract results: last successful nonce was 19, so floor = 20
+      restMock
+        .onGet(contractResultsByFromPath)
+        .reply(200, JSON.stringify({ results: [{ nonce: 19, from: MOCK_ACCOUNT_ADDR }], links: { next: null } }));
+
+      const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
+      expect(nonce).to.exist;
+      // With evidence, mirror nonce 24 is suspect because 24 > floor 20; use floor 20
+      expect(nonce).to.equal(numberTo0x(20));
+    });
+
+    it('should use max() when WRONG_NONCE evidence exists but mirror is NOT ahead of floor', async () => {
+      // Pre-set WRONG_NONCE evidence flag in cache
+      const evidenceKey = `wrong_nonce_${MOCK_ACCOUNT_ADDR.toLowerCase()}`;
+      await cacheService.set(evidenceKey, 'true', 'test', constants.NONCE_FLOOR_CACHE_TTL_MS);
+
+      // Mirror reports ethereum_nonce=5 which matches the floor exactly
+      restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: 5 }));
+      // Contract results: last successful nonce was 4, so floor = 5
+      restMock
+        .onGet(contractResultsByFromPath)
+        .reply(200, JSON.stringify({ results: [{ nonce: 4, from: MOCK_ACCOUNT_ADDR }], links: { next: null } }));
+
+      const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
+      expect(nonce).to.exist;
+      // Mirror nonce 5 is NOT ahead of floor 5, so normal max(5, 5) = 5
+      expect(nonce).to.equal(numberTo0x(5));
+    });
+
+    it('should use normal max() when no WRONG_NONCE evidence exists even if mirror is ahead', async () => {
+      // No evidence flag set — normal behavior
+      // Mirror reports ethereum_nonce=24 and contract results floor is 20
+      restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: 24 }));
+      restMock
+        .onGet(contractResultsByFromPath)
+        .reply(200, JSON.stringify({ results: [{ nonce: 19, from: MOCK_ACCOUNT_ADDR }], links: { next: null } }));
+
+      const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
+      expect(nonce).to.exist;
+      // No evidence, so normal max(24, 20) = 24
+      expect(nonce).to.equal(numberTo0x(24));
+    });
+  });
+
   it('should return nonce when block hash is passed', async () => {
     const blockHash = mockData.blocks.blocks[2].hash;
     restMock.onGet(`blocks/${blockHash}`).reply(200, JSON.stringify(mockData.blocks.blocks[2]));
