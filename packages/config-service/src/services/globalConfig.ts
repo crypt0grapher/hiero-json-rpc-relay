@@ -313,17 +313,17 @@ const _CONFIG = {
   HBAR_RATE_LIMIT_BASIC: {
     type: 'number',
     required: false,
-    defaultValue: 300_000_000, // 3 XCN
+    defaultValue: 3_000_000_000, // 30 XCN
   },
   HBAR_RATE_LIMIT_EXTENDED: {
     type: 'number',
     required: false,
-    defaultValue: 100_000_000, // 1 XCN
+    defaultValue: 1_000_000_000, // 10 XCN
   },
   HBAR_RATE_LIMIT_PRIVILEGED: {
     type: 'number',
     required: false,
-    defaultValue: 270_000_000, // 2.7 XCN
+    defaultValue: 2_700_000_000, // 27 XCN
   },
   HBAR_RATE_LIMIT_DURATION: {
     type: 'number',
@@ -333,7 +333,7 @@ const _CONFIG = {
   HBAR_RATE_LIMIT_TINYBAR: {
     type: 'number',
     required: false,
-    defaultValue: 25_000_000_000, // 250 XCN
+    defaultValue: 250_000_000_000, // 2500 XCN
   },
   HEDERA_NETWORK: {
     type: 'string',
