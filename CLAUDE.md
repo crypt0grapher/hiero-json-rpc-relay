@@ -137,18 +137,63 @@ This repository is a fork of `hiero-ledger/hiero-json-rpc-relay` maintained unde
 - `origin` = `git@github.com:crypt0grapher/hiero-json-rpc-relay.git` (fork — push here)
 - `upstream` = `git@github.com:hiero-ledger/hiero-json-rpc-relay.git` (original — PR target)
 
-### Active Patches (not yet in upstream)
+### Active Patches (merged to main, not yet in upstream)
 
-| Branch | Issue | Description | Image Tag |
-|--------|-------|-------------|-----------|
-| `fix/max-fee-per-gas-weibar` | [#4901](https://github.com/hiero-ledger/hiero-json-rpc-relay/issues/4901) | Convert maxFeePerGas/maxPriorityFeePerGas from tinybars to weibars; use block-time gas price for baseFeePerGas | `ghcr.io/crypt0grapher/hiero-json-rpc-relay:0.75.0-fix-4901` |
+All Goliath patches are merged into `main`. The CI-built image from `main` is the production image.
 
-### Building the Goliath Custom Image
+| Commit | Description |
+|--------|-------------|
+| `89fd1a85` | Set baseFeePerGas to gas price for Blockscout compatibility |
+| `d1b6f1d2` | Add nonce floor from contract results to prevent stale mirror nonce |
+| `7eb86b76` | Update nonce floor cache after successful tx submission |
+| `cbe5dc47` | Increase XCN rate limits 10x for Goliath Mainnet (2500 XCN total) |
+
+### Deployment Workflow (IMPORTANT)
+
+**Always push changes to the `main` branch and use the CI-built image.** Never build and deploy custom-tagged images manually.
 
 ```bash
-cd ~/goliath/json-rpc-relay
-git checkout fix/max-fee-per-gas-weibar
-docker build --platform linux/amd64 -t ghcr.io/crypt0grapher/hiero-json-rpc-relay:0.75.0-fix-4901 .
-echo $GITHUB_TOKEN | docker login ghcr.io -u crypt0grapher --password-stdin
-docker push ghcr.io/crypt0grapher/hiero-json-rpc-relay:0.75.0-fix-4901
+# 1. Make changes on a feature/fix branch
+git checkout -b fix/my-fix
+# ... make changes, commit ...
+
+# 2. Merge to main and push — CI builds the image automatically
+git checkout main
+git merge fix/my-fix --no-edit
+git push origin main
+
+# 3. Wait for CI to complete (~2-3 min)
+gh run list --repo crypt0grapher/hiero-json-rpc-relay --workflow=build-relay.yaml --limit=1
+
+# 4. Get the CI-built image digest
+gh api /users/crypt0grapher/packages/container/hiero-json-rpc-relay%2Fjson-rpc-relay/versions \
+  --jq '.[0] | "\(.metadata.container.tags | join(",")) \(.name)"'
+
+# 5. Deploy using the `main` tag pinned by digest
+#    Update ~/goliath/mainnet/k8s/relay/relay-http.yaml and relay-ws.yaml with new digest
+#    Apply to all 3 K3s clusters (FRA, ASH, TYO)
 ```
+
+**CI Image:** `ghcr.io/crypt0grapher/hiero-json-rpc-relay/json-rpc-relay:main`
+**CI Workflow:** `.github/workflows/build-relay.yaml` (triggers on push to `main`)
+
+### Mainnet Relay Deployment
+
+**Clusters:** FRA (`~/.kube/goliath-fra.yaml`), ASH (`~/.kube/goliath-ash.yaml`), TYO (`~/.kube/goliath-tyo.yaml`)
+**Namespace:** `goliath-relay`
+**Manifests:** `~/goliath/mainnet/k8s/relay/relay-http.yaml`, `relay-ws.yaml`
+**Operators:** FRA=0.0.1011, ASH=0.0.1012, TYO=0.0.1013 (per-region, stored in ConfigMaps)
+
+**Pod restart safety:** NEVER use `kubectl rollout restart`. Delete pods one-by-one with 45s sleep between each to avoid containerd overload. Or use `kubectl set image` which triggers a rolling update via the deployment strategy.
+
+### XCN Rate Limits (Goliath defaults)
+
+| Setting | Value | Env Var |
+|---------|-------|---------|
+| Total budget | 2500 XCN | `HBAR_RATE_LIMIT_TINYBAR=250000000000` |
+| BASIC per-user | 30 XCN | `HBAR_RATE_LIMIT_BASIC=3000000000` |
+| EXTENDED per-user | 10 XCN | `HBAR_RATE_LIMIT_EXTENDED=1000000000` |
+| PRIVILEGED per-user | 27 XCN | `HBAR_RATE_LIMIT_PRIVILEGED=2700000000` |
+| Reset interval | 24 hours | `HBAR_RATE_LIMIT_DURATION=86400000` |
+
+Rate limits reset automatically every 24h (midnight UTC). Pod restart also resets limits (HbarLimitService reinitializes).
