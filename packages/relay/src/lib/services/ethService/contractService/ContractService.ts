@@ -162,13 +162,76 @@ export class ContractService implements IContractService {
         throw predefined.INTERNAL_ERROR('Fail to retrieve gas estimate');
       }
 
-      return prepend0x(trimPrecedingZeros(response.result) ?? '0');
+      const estimatedGas = parseInt(response.result, 16);
+      const formattedResult = prepend0x(trimPrecedingZeros(response.result) ?? '0');
+
+      // Apply lazy-create gas floor: if the estimate is below the hollow account creation
+      // threshold, the tx has a destination address with a non-zero value, and the destination
+      // does not yet exist on Hedera, return the minimum gas for hollow account creation.
+      if (
+        estimatedGas < constants.MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS &&
+        transaction.to &&
+        this.hasNonZeroValue(transaction.value)
+      ) {
+        const addressExists = await this.checkAccountExists(transaction.to, requestDetails);
+        if (!addressExists) {
+          if (this.logger.isLevelEnabled('debug')) {
+            this.logger.debug(
+              `eth_estimateGas: applying lazy-create gas floor (${constants.MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS}) ` +
+                `for non-existent address ${transaction.to} (mirror estimate was ${estimatedGas})`,
+            );
+          }
+          return numberTo0x(constants.MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS);
+        }
+      }
+
+      return formattedResult;
     } catch (e: any) {
       if (e instanceof JsonRpcError) throw e;
       if (e instanceof MirrorNodeClientError) await this.handleMirrorNodeClientError(e);
 
       this.logger.error(e, 'Failed to successfully estimate gas');
       throw predefined.INTERNAL_ERROR(e.message.toString());
+    }
+  }
+
+  /**
+   * Checks whether a transaction value is non-zero.
+   * Handles the various types that `IContractCallRequest.value` can take:
+   * number, hex string, or null/undefined.
+   *
+   * @param {number | string | null | undefined} value - The transaction value
+   * @returns {boolean} True if value is present and non-zero
+   * @private
+   */
+  private hasNonZeroValue(value: number | string | null | undefined): boolean {
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'number') return value !== 0;
+    if (typeof value === 'string') {
+      const parsed = value.startsWith('0x') ? parseInt(value, 16) : parseInt(value, 10);
+      return !isNaN(parsed) && parsed !== 0;
+    }
+    return false;
+  }
+
+  /**
+   * Checks whether an account exists on the mirror node.
+   * Returns false if the account is not found (404) or if the lookup fails,
+   * since returning the higher gas floor is the safer default.
+   *
+   * @param {string} address - The EVM address to check
+   * @param {RequestDetails} requestDetails - The request details for logging and tracking
+   * @returns {Promise<boolean>} True if the account exists, false otherwise
+   * @private
+   */
+  private async checkAccountExists(address: string, requestDetails: RequestDetails): Promise<boolean> {
+    try {
+      const account = await this.mirrorNodeClient.getAccount(address, requestDetails);
+      return account !== null && account !== undefined;
+    } catch {
+      // Mirror lookup failed or returned 404 -- treat as non-existent.
+      // Overestimating gas is safer than underestimating.
+      return false;
     }
   }
 

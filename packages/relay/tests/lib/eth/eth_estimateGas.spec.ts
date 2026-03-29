@@ -11,7 +11,6 @@ import { numberTo0x } from '../../../src/formatters';
 import { SDKClient } from '../../../src/lib/clients';
 import constants from '../../../src/lib/constants';
 import { predefined } from '../../../src/lib/errors/JsonRpcError';
-import { MirrorNodeClientError } from '../../../src/lib/errors/MirrorNodeClientError';
 import { EthImpl } from '../../../src/lib/eth';
 import { LocalPendingTransactionStorage, LockService, TransactionPoolService } from '../../../src/lib/services';
 import { IContractCallRequest, IContractCallResponse, RequestDetails } from '../../../src/lib/types';
@@ -243,7 +242,7 @@ describe('@ethEstimateGas Estimate Gas spec', async function () {
     expect(gas).to.equal(gasTxBaseCost);
   });
 
-  it('should eth_estimateGas transfer to existing cached account returns gas estimate', async function () {
+  it('should eth_estimateGas transfer to existing account returns consistent gas estimate on repeated calls', async function () {
     const callData: IContractCallRequest = {
       to: RECEIVER_ADDRESS,
       value: 100_000_000_000, // 10^11 wei = 10 tinybars after conversion
@@ -254,7 +253,7 @@ describe('@ethEstimateGas Estimate Gas spec', async function () {
       .onGet(`accounts/${RECEIVER_ADDRESS}${NO_TRANSACTIONS}`)
       .reply(200, JSON.stringify({ address: RECEIVER_ADDRESS }));
 
-    const gasBeforeCache = await ethImpl.estimateGas(
+    const gasFirstCall = await ethImpl.estimateGas(
       {
         to: RECEIVER_ADDRESS,
         value: 100_000_000_000,
@@ -263,8 +262,7 @@ describe('@ethEstimateGas Estimate Gas spec', async function () {
       requestDetails,
     );
 
-    restMock.onGet(`accounts/${RECEIVER_ADDRESS}${NO_TRANSACTIONS}`).reply(404);
-    const gasAfterCache = await ethImpl.estimateGas(
+    const gasSecondCall = await ethImpl.estimateGas(
       {
         to: RECEIVER_ADDRESS,
         value: 100_000_000_000,
@@ -273,8 +271,8 @@ describe('@ethEstimateGas Estimate Gas spec', async function () {
       requestDetails,
     );
 
-    expect(gasBeforeCache).to.equal(gasTxBaseCost);
-    expect(gasAfterCache).to.equal(gasTxBaseCost);
+    expect(gasFirstCall).to.equal(gasTxBaseCost);
+    expect(gasSecondCall).to.equal(gasTxBaseCost);
   });
 
   it('should eth_estimateGas transfer to non existing account returns gas estimate for hollow account creation', async function () {
@@ -663,6 +661,118 @@ describe('@ethEstimateGas Estimate Gas spec', async function () {
     expect(transaction.value).to.eq(1110);
     expect(transaction.gasPrice).to.eq(1000000);
     expect(transaction.gas).to.eq(14250000);
+  });
+
+  describe('eth_estimateGas lazy-create gas floor', function () {
+    const NON_EXISTENT_ADDRESS = '0xdead000000000000000000000000000000000001';
+    const LOW_GAS_ESTIMATE = numberTo0x(47_802); // Typical mirror-web3 estimate for simple transfer
+    const HIGH_GAS_ESTIMATE = numberTo0x(600_000); // Above the hollow account creation threshold
+
+    it('should return MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS when estimate is below floor and destination does not exist', async function () {
+      const callData: IContractCallRequest = {
+        from: ACCOUNT_ADDRESS_1,
+        to: NON_EXISTENT_ADDRESS,
+        value: '0x2540BE400', // 10 billion wei
+      };
+      await mockContractCall(callData, true, 200, { result: LOW_GAS_ESTIMATE }, requestDetails);
+      restMock.onGet(`accounts/${NON_EXISTENT_ADDRESS}${NO_TRANSACTIONS}`).reply(404);
+
+      const gas = await ethImpl.estimateGas(callData, null, requestDetails);
+      expect(Number(gas)).to.equal(constants.MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS);
+    });
+
+    it('should return original estimate when destination address exists', async function () {
+      const callData: IContractCallRequest = {
+        from: ACCOUNT_ADDRESS_1,
+        to: RECEIVER_ADDRESS,
+        value: '0x2540BE400',
+      };
+      await mockContractCall(callData, true, 200, { result: LOW_GAS_ESTIMATE }, requestDetails);
+      restMock
+        .onGet(`accounts/${RECEIVER_ADDRESS}${NO_TRANSACTIONS}`)
+        .reply(200, JSON.stringify({ account: '0.0.1234', evm_address: RECEIVER_ADDRESS }));
+
+      const gas = await ethImpl.estimateGas(callData, null, requestDetails);
+      expect(Number(gas)).to.equal(47_802);
+    });
+
+    it('should return original estimate when estimate is already above the floor (no mirror API call)', async function () {
+      const callData: IContractCallRequest = {
+        from: ACCOUNT_ADDRESS_1,
+        to: NON_EXISTENT_ADDRESS,
+        value: '0x2540BE400',
+      };
+      await mockContractCall(callData, true, 200, { result: HIGH_GAS_ESTIMATE }, requestDetails);
+      // Do NOT mock getAccount -- if the code makes an unnecessary call, axios-mock-adapter
+      // with onNoMatch: 'throwException' will fail the test.
+
+      const gas = await ethImpl.estimateGas(callData, null, requestDetails);
+      expect(Number(gas)).to.equal(600_000);
+    });
+
+    it('should return original estimate for contract call (no value)', async function () {
+      const callData: IContractCallRequest = {
+        from: ACCOUNT_ADDRESS_1,
+        to: NON_EXISTENT_ADDRESS,
+        data: '0xa9059cbb', // ERC-20 transfer selector
+      };
+      await mockContractCall(callData, true, 200, { result: LOW_GAS_ESTIMATE }, requestDetails);
+      // No getAccount mock -- value is absent so the floor logic should not trigger.
+
+      const gas = await ethImpl.estimateGas(callData, null, requestDetails);
+      expect(Number(gas)).to.equal(47_802);
+    });
+
+    it('should return original estimate for value transfer with zero value', async function () {
+      const callData: IContractCallRequest = {
+        from: ACCOUNT_ADDRESS_1,
+        to: NON_EXISTENT_ADDRESS,
+        value: '0x0',
+      };
+      await mockContractCall(callData, true, 200, { result: LOW_GAS_ESTIMATE }, requestDetails);
+      // No getAccount mock -- zero value should not trigger the floor logic.
+
+      const gas = await ethImpl.estimateGas(callData, null, requestDetails);
+      expect(Number(gas)).to.equal(47_802);
+    });
+
+    it('should return MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS when mirror API lookup fails (safe fallback)', async function () {
+      const callData: IContractCallRequest = {
+        from: ACCOUNT_ADDRESS_1,
+        to: NON_EXISTENT_ADDRESS,
+        value: '0x2540BE400',
+      };
+      await mockContractCall(callData, true, 200, { result: LOW_GAS_ESTIMATE }, requestDetails);
+      restMock.onGet(`accounts/${NON_EXISTENT_ADDRESS}${NO_TRANSACTIONS}`).reply(500);
+
+      const gas = await ethImpl.estimateGas(callData, null, requestDetails);
+      expect(Number(gas)).to.equal(constants.MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS);
+    });
+
+    it('should return original estimate when value is numeric zero', async function () {
+      const callData: IContractCallRequest = {
+        from: ACCOUNT_ADDRESS_1,
+        to: NON_EXISTENT_ADDRESS,
+        value: 0,
+      };
+      await mockContractCall(callData, true, 200, { result: LOW_GAS_ESTIMATE }, requestDetails);
+
+      const gas = await ethImpl.estimateGas(callData, null, requestDetails);
+      expect(Number(gas)).to.equal(47_802);
+    });
+
+    it('should return MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS when value is numeric non-zero and address does not exist', async function () {
+      const callData: IContractCallRequest = {
+        from: ACCOUNT_ADDRESS_1,
+        to: NON_EXISTENT_ADDRESS,
+        value: 100_000_000_000,
+      };
+      await mockContractCall(callData, true, 200, { result: LOW_GAS_ESTIMATE }, requestDetails);
+      restMock.onGet(`accounts/${NON_EXISTENT_ADDRESS}${NO_TRANSACTIONS}`).reply(404);
+
+      const gas = await ethImpl.estimateGas(callData, null, requestDetails);
+      expect(Number(gas)).to.equal(constants.MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS);
+    });
   });
 
   describe('eth_estimateGas with mirror node 5xx server errors', function () {
