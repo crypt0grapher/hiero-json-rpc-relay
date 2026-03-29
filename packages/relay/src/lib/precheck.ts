@@ -330,6 +330,10 @@ export class Precheck {
 
   /**
    * Checks if the receiver account exists and has receiver_sig_required set to true.
+   * When the receiver does not exist on the network, the transaction triggers a
+   * hollow-account (lazy-create) flow which requires a minimum gas limit of
+   * MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS (587,000). Reject early if the caller
+   * has not provided enough gas to cover this.
    * @param tx - The transaction.
    * @param requestDetails - The request details for logging and tracking.
    */
@@ -337,8 +341,18 @@ export class Precheck {
     if (tx.to) {
       const verifyAccount = await this.mirrorNodeClient.getAccount(tx.to, requestDetails);
 
+      if (!verifyAccount) {
+        // Account does not exist — this will be a hollow-account (lazy-create) transaction.
+        // Enforce the minimum gas limit so we reject cheaply instead of wasting consensus resources.
+        const gasLimit = Number(tx.gasLimit);
+        if (gasLimit > 0 && gasLimit < constants.MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS) {
+          throw predefined.GAS_LIMIT_TOO_LOW(gasLimit, constants.MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS);
+        }
+        return;
+      }
+
       // When `receiver_sig_required` is set to true, the receiver's account must sign all incoming transactions.
-      if (verifyAccount && verifyAccount.receiver_sig_required) {
+      if (verifyAccount.receiver_sig_required) {
         throw predefined.RECEIVER_SIGNATURE_ENABLED;
       }
     }

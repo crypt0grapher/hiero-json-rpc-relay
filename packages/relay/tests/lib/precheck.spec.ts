@@ -1005,6 +1005,70 @@ describe('Precheck', async function () {
 
       expect(async () => await precheck.receiverAccount(parsedTx, requestDetails)).not.to.throw;
     });
+
+    it('should fail with gas limit too low for lazy-create when account does not exist', async function () {
+      const lowGasLimit = 21_000; // Below MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS (587,000)
+      const wallet = ethers.Wallet.createRandom();
+      const nonExistentAddress = ethers.Wallet.createRandom().address;
+      const signed = await wallet.signTransaction({
+        ...defaultTx,
+        from: wallet.address,
+        to: nonExistentAddress,
+        nonce: defaultNonce,
+        gasLimit: lowGasLimit,
+      });
+      const lowGasTx = ethers.Transaction.from(signed);
+
+      mock.onGet(`accounts/${lowGasTx.to}${transactionsPostFix}`).reply(404, JSON.stringify(mockData.notFound));
+
+      try {
+        await precheck.receiverAccount(lowGasTx, requestDetails);
+        expectedError();
+      } catch (e: any) {
+        expect(e).to.exist;
+        expect(e.code).to.eq(-32003);
+        expect(e.message).to.contain(`${lowGasLimit}`);
+        expect(e.message).to.contain(`${constants.MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS}`);
+      }
+    });
+
+    it('should pass for non-existent account when gas limit meets lazy-create minimum', async function () {
+      const sufficientGasLimit = constants.MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS; // Exactly 587,000
+      const wallet = ethers.Wallet.createRandom();
+      const nonExistentAddress = ethers.Wallet.createRandom().address;
+      const signed = await wallet.signTransaction({
+        ...defaultTx,
+        from: wallet.address,
+        to: nonExistentAddress,
+        nonce: defaultNonce,
+        gasLimit: sufficientGasLimit,
+      });
+      const sufficientGasTx = ethers.Transaction.from(signed);
+
+      mock.onGet(`accounts/${sufficientGasTx.to}${transactionsPostFix}`).reply(404, JSON.stringify(mockData.notFound));
+
+      // Should not throw — gas limit is sufficient for hollow account creation
+      await precheck.receiverAccount(sufficientGasTx, requestDetails);
+    });
+
+    it('should pass for non-existent account when gas limit exceeds lazy-create minimum', async function () {
+      const highGasLimit = 1_000_000; // Well above MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS
+      const wallet = ethers.Wallet.createRandom();
+      const nonExistentAddress = ethers.Wallet.createRandom().address;
+      const signed = await wallet.signTransaction({
+        ...defaultTx,
+        from: wallet.address,
+        to: nonExistentAddress,
+        nonce: defaultNonce,
+        gasLimit: highGasLimit,
+      });
+      const highGasTx = ethers.Transaction.from(signed);
+
+      mock.onGet(`accounts/${highGasTx.to}${transactionsPostFix}`).reply(404, JSON.stringify(mockData.notFound));
+
+      // Should not throw — gas limit exceeds the minimum
+      await precheck.receiverAccount(highGasTx, requestDetails);
+    });
   });
 
   describe('parseRawTransaction', async function () {
