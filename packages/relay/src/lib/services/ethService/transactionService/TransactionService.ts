@@ -923,7 +923,31 @@ export class TransactionService implements ITransactionService {
         }
         let accountNonce: number | null = null;
         try {
-          accountNonce = (await this.mirrorNodeClient.getAccount(parsedTx.from!, requestDetails))?.ethereum_nonce;
+          const accountData = await this.mirrorNodeClient.getAccount(parsedTx.from!, requestDetails);
+          if (accountData) {
+            const mirrorNonce = accountData.ethereum_nonce !== null ? accountData.ethereum_nonce : 1;
+
+            // Apply nonce floor from latest contract result, matching the logic in
+            // AccountService.getAccountLatestEthereumNonce(). Without this, a stale
+            // mirror nonce causes misclassification: correct nonces appear "too high"
+            // and the user is deadlocked.
+            let nonceFloor = 0;
+            try {
+              const results = await this.mirrorNodeClient.getContractResults(
+                requestDetails,
+                { from: parsedTx.from! },
+                { limit: 1, order: constants.ORDER.DESC },
+              );
+              if (Array.isArray(results) && results.length > 0 && results[0].nonce != null) {
+                nonceFloor = results[0].nonce + 1;
+              }
+            } catch (floorError: any) {
+              // Floor lookup failed -- fall back to mirror nonce only (existing behavior).
+              this.logger.debug(`Failed to get nonce floor for WRONG_NONCE handler: ${floorError.message}`);
+            }
+
+            accountNonce = Math.max(mirrorNonce, nonceFloor);
+          }
         } catch (mirrorNodeError) {
           // Mirror Node request failed (e.g., 404, 429, 5xx)
           // Simply ignore and fallback to the original rejection to avoid masking the true error
