@@ -421,66 +421,13 @@ export class AccountService implements IAccountService {
   private async getAccountLatestEthereumNonce(address: string, requestDetails: RequestDetails): Promise<string> {
     const accountData = await this.mirrorNodeClient.getAccount(address, requestDetails);
     if (accountData) {
-      // with HIP 729 ethereum_nonce should always be 0+ and null. Historical contracts may have a null value as the nonce was not tracked, return default EVM compliant 0x1 in this case
+      // With HIP-729, ethereum_nonce should always be 0+. Historical contracts may
+      // have null as nonce was not tracked — return EVM-compliant 0x1 in that case.
       const mirrorNonce = accountData.ethereum_nonce !== null ? accountData.ethereum_nonce : 1;
-
-      // Verify against the latest successful contract result nonce to detect stale
-      // mirror ethereum_nonce. On Hedera, WRONG_NONCE failure records can overwrite
-      // the correct mirror nonce with a stale value, causing eth_getTransactionCount
-      // to return a nonce that consensus has already consumed.
-      const nonceFloor = await this.getContractResultNonceFloor(address, requestDetails);
-      const effectiveNonce = Math.max(mirrorNonce, nonceFloor);
-
-      this.logger.info(
-        `[NONCE-FLOOR] address=${address} mirrorNonce=${mirrorNonce} nonceFloor=${nonceFloor} effectiveNonce=${effectiveNonce}`,
-      );
-
-      return numberTo0x(effectiveNonce);
+      return numberTo0x(mirrorNonce);
     }
 
     return constants.ZERO_HEX;
-  }
-
-  /**
-   * Gets the nonce floor from the latest successful contract result for an address.
-   * The floor = lastSuccessfulNonce + 1. Cached with a short TTL to avoid hitting
-   * the mirror API on every getTransactionCount call.
-   *
-   * This prevents a known Hedera-fork regression where WRONG_NONCE failure records
-   * in the mirror can overwrite entity.ethereum_nonce with a stale value, causing
-   * eth_getTransactionCount to return a nonce that consensus has already consumed.
-   *
-   * @param address - The EVM address to check
-   * @param requestDetails - Request details for logging and tracking
-   * @returns The nonce floor (0 if no contract results found or on error)
-   */
-  private async getContractResultNonceFloor(address: string, requestDetails: RequestDetails): Promise<number> {
-    const cacheKey = `${constants.CACHE_KEY.NONCE_FLOOR}_${address.toLowerCase()}`;
-    const cached = await this.cacheService.getAsync(cacheKey, 'getContractResultNonceFloor');
-    if (cached !== null && cached !== undefined) {
-      return Number(cached);
-    }
-
-    try {
-      const results = await this.mirrorNodeClient.getContractResults(
-        requestDetails,
-        { from: address },
-        { limit: 1, order: constants.ORDER.DESC },
-      );
-      if (Array.isArray(results) && results.length > 0 && results[0].nonce != null) {
-        const floor = results[0].nonce + 1;
-        await this.cacheService.set(cacheKey, floor, 'getContractResultNonceFloor', constants.NONCE_FLOOR_CACHE_TTL_MS);
-        return floor;
-      }
-    } catch (e: any) {
-      // Contract results query failed — fall back to mirror nonce only.
-      // This is a best-effort protection; degrading to mirror-only is acceptable.
-      if (this.logger.isLevelEnabled('debug')) {
-        this.logger.debug(`Failed to get nonce floor for ${address}: ${e.message}`);
-      }
-    }
-
-    return 0;
   }
 
   /**

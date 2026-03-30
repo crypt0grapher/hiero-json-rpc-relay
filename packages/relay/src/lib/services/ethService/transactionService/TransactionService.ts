@@ -841,24 +841,6 @@ export class TransactionService implements ITransactionService {
     // Handle submission errors - throws for definitive failures, returns for MN polling cases
     await this.handleSubmissionError(error, parsedTx, requestDetails);
 
-    // At this point, either no error or a post-execution failure that needs MN polling.
-    // Update the nonce floor cache so the next eth_getTransactionCount call returns the
-    // correct next nonce even before the mirror catches up. This closes the window where
-    // back-to-back sends fail because both mirror account and contract_results endpoints
-    // still reflect the pre-submission state.
-    if (parsedTx.from && parsedTx.nonce != null) {
-      const floorKey = `${constants.CACHE_KEY.NONCE_FLOOR}_${parsedTx.from.toLowerCase()}`;
-      const newFloor = parsedTx.nonce + 1;
-      try {
-        const existingFloor = await this.cacheService.getAsync(floorKey, 'updateNonceFloor');
-        if (existingFloor == null || Number(existingFloor) < newFloor) {
-          await this.cacheService.set(floorKey, newFloor, 'updateNonceFloor', constants.NONCE_FLOOR_CACHE_TTL_MS);
-        }
-      } catch (e: any) {
-        this.logger.debug(`Failed to update nonce floor for ${parsedTx.from}: ${e.message}`);
-      }
-    }
-
     return this.getTransactionHashFromMirrorNode(submittedTransactionId, error, requestDetails);
   }
 
@@ -923,31 +905,7 @@ export class TransactionService implements ITransactionService {
         }
         let accountNonce: number | null = null;
         try {
-          const accountData = await this.mirrorNodeClient.getAccount(parsedTx.from!, requestDetails);
-          if (accountData) {
-            const mirrorNonce = accountData.ethereum_nonce !== null ? accountData.ethereum_nonce : 1;
-
-            // Apply nonce floor from latest contract result, matching the logic in
-            // AccountService.getAccountLatestEthereumNonce(). Without this, a stale
-            // mirror nonce causes misclassification: correct nonces appear "too high"
-            // and the user is deadlocked.
-            let nonceFloor = 0;
-            try {
-              const results = await this.mirrorNodeClient.getContractResults(
-                requestDetails,
-                { from: parsedTx.from! },
-                { limit: 1, order: constants.ORDER.DESC },
-              );
-              if (Array.isArray(results) && results.length > 0 && results[0].nonce != null) {
-                nonceFloor = results[0].nonce + 1;
-              }
-            } catch (floorError: any) {
-              // Floor lookup failed -- fall back to mirror nonce only (existing behavior).
-              this.logger.debug(`Failed to get nonce floor for WRONG_NONCE handler: ${floorError.message}`);
-            }
-
-            accountNonce = Math.max(mirrorNonce, nonceFloor);
-          }
+          accountNonce = (await this.mirrorNodeClient.getAccount(parsedTx.from!, requestDetails))?.ethereum_nonce;
         } catch (mirrorNodeError) {
           // Mirror Node request failed (e.g., 404, 429, 5xx)
           // Simply ignore and fallback to the original rejection to avoid masking the true error
