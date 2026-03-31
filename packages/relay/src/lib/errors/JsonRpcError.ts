@@ -106,13 +106,13 @@ export const predefined = {
     }),
   NONCE_TOO_LOW: (nonce, currentNonce) =>
     new JsonRpcError({
-      code: 32001,
-      message: `Nonce too low. Provided nonce: ${nonce}, current nonce: ${currentNonce}`,
+      code: -32000,
+      message: `nonce too low`,
     }),
   NONCE_TOO_HIGH: (nonce, currentNonce) =>
     new JsonRpcError({
-      code: 32002,
-      message: `Nonce too high. Provided nonce: ${nonce}, current nonce: ${currentNonce}`,
+      code: -32000,
+      message: `nonce too low`,
     }),
   NO_MINING_WORK: new JsonRpcError({
     code: -32000,

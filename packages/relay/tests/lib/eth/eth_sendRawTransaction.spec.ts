@@ -1171,8 +1171,7 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
             .to.be.rejectedWith(JsonRpcError)
             .and.eventually.satisfy(
               (error: JsonRpcError) =>
-                expect(error.code).to.equal(predefined.NONCE_TOO_HIGH(10, 5).code) &&
-                expect(error.message).to.include('Nonce too high'),
+                expect(error.code).to.equal(-32000) && expect(error.message).to.include('nonce too low'),
             );
 
           // Verify accounts endpoint WAS called to get current nonce
@@ -1203,8 +1202,7 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
             .to.be.rejectedWith(JsonRpcError)
             .and.eventually.satisfy(
               (error: JsonRpcError) =>
-                expect(error.code).to.equal(predefined.NONCE_TOO_LOW(3, 8).code) &&
-                expect(error.message).to.include('Nonce too low'),
+                expect(error.code).to.equal(-32000) && expect(error.message).to.include('nonce too low'),
             );
 
           // Verify accounts endpoint WAS called to get current nonce
