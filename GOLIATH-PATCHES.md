@@ -191,24 +191,14 @@ This document is the authoritative source for understanding fork divergence.
 
 ## Temporary Patches (Remove When Condition Met)
 
-### T1. Nonce Floor from Contract Results
+_No active temporary patches._
 
-- **Commits:** `d1b6f1d2`, `7eb86b76`, `30e16af5`
-- **What:** Two-layer protection against stale mirror nonce:
-  1. **Contract results floor** (`AccountService.getContractResultNonceFloor`): queries `contracts/results?from=<addr>&limit=1&order=desc` to establish a floor = lastSuccessfulNonce + 1. Returns `max(mirrorNonce, floor)` from `getAccountLatestEthereumNonce()`. Cached per address with 15s TTL (`NONCE_FLOOR_CACHE_TTL_MS`).
-  2. **Post-submission floor** (`TransactionService.sendRawTransaction`): after successful tx submission, writes `submittedNonce + 1` to the nonce floor cache. Covers the 3-10s mirror ingestion delay where back-to-back sends would fail.
-- **Remove when:** The Hedera mirror node importer correctly writes `next_nonce` (not `used_nonce`) to `entity.ethereum_nonce`, and WRONG_NONCE failure records no longer corrupt the stored nonce. Specifically: importer fix deployed and stable 24h+ on FRA canary with no WRONG_NONCE regressions.
-- **Verification:**
-  1. Deploy importer fix to FRA canary
-  2. Monitor for 24h: no WRONG_NONCE errors where mirror nonce < consensus nonce
-  3. Remove nonce floor code
-  4. Monitor 24h on FRA, then roll to ASH + TYO
-- **Files:**
-  - `packages/relay/src/lib/constants.ts` (NONCE_FLOOR cache key + TTL constant)
-  - `packages/relay/src/lib/services/ethService/accountService/AccountService.ts` (getContractResultNonceFloor + integration in getAccountLatestEthereumNonce)
-  - `packages/relay/src/lib/services/ethService/transactionService/TransactionService.ts` (post-submission nonce floor update in sendRawTransaction)
-  - Tests: `eth_getTransactionCount.spec.ts` (6 new nonce floor tests)
-- **Tracked by:** subtask-003 (remove nonce floor after importer canary)
+### ~~T1. Nonce Floor from Contract Results~~ — REMOVED 2026-03-30
+
+- **Commits:** `d1b6f1d2`, `7eb86b76`, `30e16af5` (added); `184856df` (removed)
+- **What was:** Two-layer nonce floor (contract results + post-submission cache) compensating for stale mirror `ethereum_nonce`
+- **Removed because:** Importer fix (`024f98474` in mirror-node) deployed to all 3 regions, mirror nonce now authoritative
+- **Rollback:** `git revert 184856df` or deploy tag `rollback/nonce-floor-intact` (image `sha256:3d8804e8...`)
 
 ---
 
