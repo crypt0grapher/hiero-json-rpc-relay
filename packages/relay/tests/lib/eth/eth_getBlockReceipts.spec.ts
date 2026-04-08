@@ -81,6 +81,14 @@ describe('@ethGetBlockReceipts using MirrorNode', async function () {
   this.afterEach(() => {
     getSdkClientStub.restore();
     extractBlockNumberOrTagStub.restore();
+    // Clean up any resolveEvmAddress stub left by tests that failed before their own cleanup
+    try {
+      if ((commonService.resolveEvmAddress as any).restore) {
+        (commonService.resolveEvmAddress as any).restore();
+      }
+    } catch (_) {
+      // Not wrapped, nothing to restore
+    }
     restMock.resetHandlers();
   });
 
@@ -248,6 +256,12 @@ describe('@ethGetBlockReceipts using MirrorNode', async function () {
             created_contract_ids: ['0.0.1234'],
             contract_id: '0.0.1234',
             address: '0xnewlyCreatedContractAddress',
+            // Use invalid signature values so recoverSenderFromContractResult fails
+            // and resolveEvmAddress is used instead. Values must be non-null so
+            // isEvmTransaction does not filter this result out.
+            r: '0x0000000000000000000000000000000000000000000000000000000000000000',
+            s: '0x0000000000000000000000000000000000000000000000000000000000000000',
+            v: 0,
           },
         ],
         links: { next: null },
@@ -282,6 +296,11 @@ describe('@ethGetBlockReceipts using MirrorNode', async function () {
             to: '0xoriginalToAddress',
             created_contract_ids: [contractId],
             contract_id: contractId,
+            // Use invalid signature values so recoverSenderFromContractResult fails
+            // and resolveEvmAddress is used instead.
+            r: '0x0000000000000000000000000000000000000000000000000000000000000000',
+            s: '0x0000000000000000000000000000000000000000000000000000000000000000',
+            v: 0,
           },
         ],
         links: { next: null },
@@ -318,6 +337,11 @@ describe('@ethGetBlockReceipts using MirrorNode', async function () {
             to: originalToAddress,
             created_contract_ids: [differentContractId],
             contract_id: contractId,
+            // Use invalid signature values so recoverSenderFromContractResult fails
+            // and resolveEvmAddress is used instead.
+            r: '0x0000000000000000000000000000000000000000000000000000000000000000',
+            s: '0x0000000000000000000000000000000000000000000000000000000000000000',
+            v: 0,
           },
         ],
         links: { next: null },

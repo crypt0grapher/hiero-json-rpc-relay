@@ -104,6 +104,28 @@ export class TransactionService implements ITransactionService {
   private readonly chain: string;
 
   /**
+   * Detects if a contract result represents a direct contract deployment
+   * (EthereumTransaction with init code, not a regular function call).
+   *
+   * On Hedera, `created_contract_ids` only lists child contracts, not the
+   * top-level contract for direct deployments. This method checks the
+   * function_parameters for EVM init code patterns to detect direct creation.
+   */
+  private static isContractCreation(contractResult: any): boolean {
+    const fp = contractResult.function_parameters || '';
+    const fpHex = fp.startsWith('0x') ? fp.substring(2) : fp;
+    const fpByteLen = fpHex.length / 2;
+    if (fpByteLen > 100) {
+      const fpPrefix = fpHex.substring(0, 10);
+      const initCodePrefixes = ['6080604052', '6060604052', '60a0604052', '60c0604052'];
+      if (initCodePrefixes.some((p) => fpPrefix.startsWith(p))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Constructor for the TransactionService class.
    */
   constructor(
@@ -236,9 +258,11 @@ export class TransactionService implements ITransactionService {
             const fromAddr =
               recoveredFrom ??
               (await this.common.resolveEvmAddress(match.from, requestDetails, [constants.TYPE_ACCOUNT]));
-            const toAddr = match.created_contract_ids?.includes(match.contract_id)
-              ? null
-              : await this.common.resolveEvmAddress(match.to, requestDetails);
+            const isDirectCreation = TransactionService.isContractCreation(match);
+            const toAddr =
+              match.created_contract_ids?.includes(match.contract_id) || isDirectCreation
+                ? null
+                : await this.common.resolveEvmAddress(match.to, requestDetails);
             match.chain_id = match.chain_id || this.chain;
 
             return createTransactionFromContractResult({
@@ -285,9 +309,11 @@ export class TransactionService implements ITransactionService {
     const fromAddress =
       recoveredSender ??
       (await this.common.resolveEvmAddress(contractResult.from, requestDetails, [constants.TYPE_ACCOUNT]));
-    const toAddress = contractResult.created_contract_ids.includes(contractResult.contract_id)
-      ? null
-      : await this.common.resolveEvmAddress(contractResult.to, requestDetails);
+    const isDirectCreation = TransactionService.isContractCreation(contractResult);
+    const toAddress =
+      contractResult.created_contract_ids.includes(contractResult.contract_id) || isDirectCreation
+        ? null
+        : await this.common.resolveEvmAddress(contractResult.to, requestDetails);
     contractResult.chain_id = contractResult.chain_id || this.chain;
 
     return createTransactionFromContractResult({

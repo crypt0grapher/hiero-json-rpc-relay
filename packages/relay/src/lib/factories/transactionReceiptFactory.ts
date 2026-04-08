@@ -99,7 +99,10 @@ class TransactionReceiptFactory {
     // Determine contract address if it exists
     const contractAddress = TransactionReceiptFactory.getContractAddressFromReceipt(receiptResponse);
 
-    if (receiptResponse.created_contract_ids.includes(receiptResponse.contract_id)) {
+    // Per Ethereum spec: if a contract was created, `to` must be null in the receipt.
+    // contractAddress is non-null only for actual creation transactions (direct deploy,
+    // factory-self-creation, or HTS precompile), so it's sufficient to null `to` here.
+    if (contractAddress !== null) {
       to = null;
     }
 
@@ -133,24 +136,59 @@ class TransactionReceiptFactory {
   }
 
   /**
-   * Helper method to determine if a receipt response includes a contract address
+   * Helper method to determine if a receipt response includes a contract address.
+   *
+   * Per Ethereum spec, `contractAddress` is set ONLY when the transaction creates a contract.
+   * For regular contract calls, it must be `null`.
+   *
+   * On Hedera, `created_contract_ids` only lists child contracts created during execution,
+   * NOT the top-level contract for direct deployments (ContractCreate / EthereumTransaction).
+   * To detect direct deployments, we check if the function_parameters contains EVM init code
+   * rather than a function call (init code starts with known patterns like PUSH1 0x80 PUSH1 0x40).
    *
    * @param receiptResponse Mirror node contract result response
-   * @returns {string} Contract address or null
+   * @returns {string | null} Contract address if created, null otherwise
    */
-  private static getContractAddressFromReceipt(receiptResponse: any): string {
+  private static getContractAddressFromReceipt(receiptResponse: any): string | null {
+    // 1. Check if contract was created via HTS system contract precompile
     const isCreationViaSystemContract = constants.HTS_CREATE_FUNCTIONS_SELECTORS.includes(
       receiptResponse.function_parameters.substring(0, constants.FUNCTION_SELECTOR_CHAR_LENGTH),
     );
 
-    if (!isCreationViaSystemContract) {
+    if (isCreationViaSystemContract) {
+      // Handle system contract creation
+      // reason for substring is described in the design doc in this repo: docs/design/hts_address_tx_receipt.md
+      const tokenAddress = receiptResponse.call_result.substring(receiptResponse.call_result.length - 40);
+      return prepend0x(tokenAddress);
+    }
+
+    // 2. Check if this transaction itself created the contract (contract_id is in created_contract_ids).
+    //    On Hedera, created_contract_ids lists child contracts spawned during execution.
+    //    When the transaction's own contract_id appears in that list, the tx IS the creation.
+    if (receiptResponse.created_contract_ids?.includes(receiptResponse.contract_id)) {
       return receiptResponse.address;
     }
 
-    // Handle system contract creation
-    // reason for substring is described in the design doc in this repo: docs/design/hts_address_tx_receipt.md
-    const tokenAddress = receiptResponse.call_result.substring(receiptResponse.call_result.length - 40);
-    return prepend0x(tokenAddress);
+    // 3. Detect direct contract deployment via EthereumTransaction.
+    //    On Hedera, direct deployments (ContractCreate / EthereumTransaction with init code)
+    //    do NOT populate created_contract_ids with the top-level contract.
+    //    We detect these by checking if function_parameters contains EVM init code.
+    //    Init code is typically >100 bytes and starts with standard Solidity memory setup
+    //    opcodes (PUSH1 0x80 PUSH1 0x40 MSTORE = 0x6080604052).
+    const fp = receiptResponse.function_parameters || '';
+    const fpHex = fp.startsWith('0x') ? fp.substring(2) : fp;
+    const fpByteLen = fpHex.length / 2;
+
+    if (fpByteLen > 100) {
+      const fpPrefix = fpHex.substring(0, 10); // first 5 bytes
+      const initCodePrefixes = ['6080604052', '6060604052', '60a0604052', '60c0604052'];
+      if (initCodePrefixes.some((p) => fpPrefix.startsWith(p))) {
+        return receiptResponse.address;
+      }
+    }
+
+    // Default: not a contract creation — return null per Ethereum spec
+    return null;
   }
 
   /**

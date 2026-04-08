@@ -179,12 +179,44 @@ gh api /users/crypt0grapher/packages/container/hiero-json-rpc-relay%2Fjson-rpc-r
 
 ### Mainnet Relay Deployment
 
+**THIS IS MAINNET. Every relay image deployment requires backup, rollback plan, and soak testing.**
+
 **Clusters:** FRA (`~/.kube/goliath-fra.yaml`), ASH (`~/.kube/goliath-ash.yaml`), TYO (`~/.kube/goliath-tyo.yaml`)
 **Namespace:** `goliath-relay`
 **Manifests:** `~/goliath/mainnet/k8s/relay/relay-http.yaml`, `relay-ws.yaml`
 **Operators:** FRA=0.0.1011, ASH=0.0.1012, TYO=0.0.1013 (per-region, stored in ConfigMaps)
 
 **Pod restart safety:** NEVER use `kubectl rollout restart`. Delete pods one-by-one with 45s sleep between each to avoid containerd overload. Or use `kubectl set image` which triggers a rolling update via the deployment strategy.
+
+### Mainnet Image Deployment Safety Protocol
+
+Before deploying ANY new relay image to mainnet:
+
+1. **Record rollback image.** Save the currently deployed image digest:
+   ```bash
+   for region in fra ash tyo; do
+     KUBECONFIG=~/.kube/goliath-${region}.yaml kubectl get deploy -n goliath-relay relay-http \
+       -o jsonpath='{.spec.template.spec.containers[0].image}' && echo " ($region)"
+   done
+   ```
+
+2. **Document rollback commands.** Before starting, write the exact `kubectl set image` commands to revert to the previous image. Include these in the task/issue file.
+
+3. **Canary deploy.** Deploy to ONE relay-http pod in FRA first:
+   ```bash
+   KUBECONFIG=~/.kube/goliath-fra.yaml kubectl set image deploy/relay-http \
+     -n goliath-relay relay-http=<new-image> && \
+   KUBECONFIG=~/.kube/goliath-fra.yaml kubectl rollout pause deploy/relay-http -n goliath-relay
+   ```
+   Monitor for 30 min: `eth_sendRawTransaction` success rate, nonce errors, receipt quality, gas price.
+
+4. **Soak period.** After full rollout to all 27 pods across 3 regions, monitor for minimum 2 hours. Check:
+   - `eth_chainId`, `eth_blockNumber`, `eth_gasPrice` return correct values on all 3 origins
+   - No WRONG_NONCE or "record unavailable" regressions
+   - Receipt `from` field shows correct wallet address (ecrecover working)
+   - `baseFeePerGas` remains `0x0` in block responses
+
+5. **No stacking.** Do NOT deploy another relay image on top of an unsoaked one. If issues appear during soak, rollback — do not hotfix forward.
 
 ### XCN Rate Limits (Goliath defaults)
 

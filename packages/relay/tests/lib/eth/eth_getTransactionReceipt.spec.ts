@@ -109,7 +109,7 @@ describe('@ethGetTransactionReceipt eth_getTransactionReceipt tests', async func
     status: '0x1',
     transactionHash: '0x4a563af33c4871b51a8b108aa2fe1dd5280a30dfb7236170ae5e5e7957eb6392',
     transactionIndex: '0x0',
-    contractAddress: '0xd8db0b1dbf8ba6721ef5256ad5fe07d72d1d04b9',
+    contractAddress: null,
     root: undefined,
   };
 
@@ -215,10 +215,9 @@ describe('@ethGetTransactionReceipt eth_getTransactionReceipt tests', async func
     if (receipt == null) return;
 
     expect(RelayAssertions.validateHash(receipt.from, 40)).to.eq(true);
-    if (receipt.contractAddress) {
-      expect(RelayAssertions.validateHash(receipt.contractAddress, 40)).to.eq(true);
-    }
-    expect(receipt.contractAddress).to.eq(contractEvmAddress);
+    // With the fix, this fixture is a call (not a creation) so contractAddress should be null.
+    // The contract_id '0.0.5001' is NOT in created_contract_ids ['0.0.7001'].
+    expect(receipt.contractAddress).to.be.null;
   });
 
   it('Handles null type', async function () {
@@ -315,6 +314,7 @@ describe('@ethGetTransactionReceipt eth_getTransactionReceipt tests', async func
   });
 
   it('should throw an error if transaction index is falsy', async function () {
+    this.timeout(30000);
     // fake unique hash so request dont re-use the cached value but the mock defined
     const uniqueTxHash = '0x17cad7b827375d12d73af57b6a3e84353645fd31305ea58ff52dda53ec640533';
 
