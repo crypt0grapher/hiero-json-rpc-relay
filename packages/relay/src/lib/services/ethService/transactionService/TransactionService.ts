@@ -945,14 +945,19 @@ export class TransactionService implements ITransactionService {
         } else {
           this.wrongNonceMetric.labels(this.lockService.getStrategyType()).inc();
         }
-        const mirrorLatestNonce = nonceStateSnapshot?.accountNonce ?? null;
+        const observedLatestNonce = nonceStateSnapshot?.accountNonce ?? null;
+        const consensusNonce = nonceStateSnapshot?.consensusNonce ?? null;
+        const mirrorLatestNonce = nonceStateSnapshot?.mirrorNonce ?? null;
+        const nonceSource = nonceStateSnapshot?.source ?? null;
         const pendingCount = parsedTx.from ? await this.transactionPoolService.getPendingCount(parsedTx.from, 0) : 0;
-        const relayPendingNonce = mirrorLatestNonce != null ? mirrorLatestNonce + pendingCount : null;
+        const relayPendingNonce = observedLatestNonce != null ? observedLatestNonce + pendingCount : null;
 
         this.logger.warn(
           {
+            consensusNonce,
             hederaStatus: error.status.toString(),
             mirrorLatestNonce,
+            nonceSource,
             pod: process.env.HOSTNAME ?? 'unknown',
             relayPendingNonce,
             requestId: requestDetails.requestId,
@@ -963,22 +968,22 @@ export class TransactionService implements ITransactionService {
           'Consensus rejected transaction with WRONG_NONCE',
         );
 
-        if (mirrorLatestNonce != null) {
-          if (parsedTx.nonce > mirrorLatestNonce) {
-            throw predefined.NONCE_TOO_HIGH(parsedTx.nonce, mirrorLatestNonce);
+        if (observedLatestNonce != null) {
+          if (parsedTx.nonce > observedLatestNonce) {
+            throw predefined.NONCE_TOO_HIGH(parsedTx.nonce, observedLatestNonce);
           }
 
-          if (parsedTx.nonce < mirrorLatestNonce) {
-            throw predefined.NONCE_TOO_LOW(parsedTx.nonce, mirrorLatestNonce);
+          if (parsedTx.nonce < observedLatestNonce) {
+            throw predefined.NONCE_TOO_LOW(parsedTx.nonce, observedLatestNonce);
           }
         }
 
         throw predefined.NONCE_CONFLICT(
           parsedTx.nonce,
-          mirrorLatestNonce,
+          observedLatestNonce,
           relayPendingNonce,
           submittedTransactionId,
-          mirrorLatestNonce == null ? 'nonce_state_unavailable' : 'equal_nonce_rejected',
+          observedLatestNonce == null ? 'nonce_state_unavailable' : 'equal_nonce_rejected',
         );
       }
 

@@ -213,6 +213,11 @@ const _CONFIG = {
     required: false,
     defaultValue: 500,
   },
+  ETH_GET_TRANSACTION_COUNT_CONSENSUS_TIMEOUT_MS: {
+    type: 'number',
+    required: false,
+    defaultValue: 1000,
+  },
   ETH_GET_TRANSACTION_COUNT_MAX_BLOCK_RANGE: {
     type: 'number',
     required: false,

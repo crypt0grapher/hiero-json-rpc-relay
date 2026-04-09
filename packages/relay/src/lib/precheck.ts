@@ -98,7 +98,12 @@ export class Precheck {
     parsedTx: ethers.Transaction,
     networkGasPriceInWeiBars: number,
     requestDetails: RequestDetails,
-  ): Promise<{ accountNonce: number }> {
+  ): Promise<{
+    accountNonce: number;
+    consensusNonce: number | null;
+    mirrorNonce: number;
+    source: 'consensus' | 'mirror';
+  }> {
     this.gasPrice(parsedTx, networkGasPriceInWeiBars);
     const nonceState = await this.getAccountNonceState(parsedTx, requestDetails);
     const mirrorAccountInfo = nonceState.mirrorAccount;
@@ -115,6 +120,9 @@ export class Precheck {
 
     return {
       accountNonce: nonceState.effectiveNonce,
+      consensusNonce: nonceState.consensusNonce,
+      mirrorNonce: nonceState.mirrorNonce,
+      source: nonceState.source,
     };
   }
 

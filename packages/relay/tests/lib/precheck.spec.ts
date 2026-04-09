@@ -764,6 +764,103 @@ describe('Precheck', async function () {
     });
   });
 
+  describe('validateAccountAndNetworkStateful', function () {
+    let authoritativeNonceService: sinon.SinonStubbedInstance<AuthoritativeNonceService>;
+    let localMirrorNodeClient: sinon.SinonStubbedInstance<MirrorNodeClient>;
+    let localPrecheck: Precheck;
+    let localTransactionPoolService: sinon.SinonStubbedInstance<TransactionPoolService>;
+
+    beforeEach(() => {
+      authoritativeNonceService = sinon.createStubInstance(AuthoritativeNonceService);
+      localMirrorNodeClient = sinon.createStubInstance(MirrorNodeClient);
+      localTransactionPoolService = sinon.createStubInstance(TransactionPoolService);
+      localPrecheck = new Precheck(
+        localMirrorNodeClient as unknown as MirrorNodeClient,
+        '0x12a',
+        localTransactionPoolService as unknown as TransactionPoolService,
+        authoritativeNonceService as unknown as AuthoritativeNonceService,
+      );
+    });
+
+    it('reuses the consensus-authoritative snapshot for send-time nonce validation', async function () {
+      const wallet = ethers.Wallet.createRandom();
+      const signed = await wallet.signTransaction({ ...defaultTx, from: wallet.address, nonce: 11 });
+      const parsedTx = ethers.Transaction.from(signed);
+      const balance = {
+        balance: 1_000_000_000,
+        timestamp: '1654168500.007651338',
+        tokens: [],
+      };
+
+      authoritativeNonceService.getLatestNonceSnapshot.resolves({
+        consensusNonce: 10,
+        effectiveNonce: 10,
+        mirrorAccount: {
+          balance,
+          ethereum_nonce: 12,
+          evm_address: parsedTx.from,
+        } as any,
+        mirrorNonce: 12,
+        source: 'consensus',
+      });
+      localTransactionPoolService.getPendingCount.resolves(2);
+
+      const nonceState = await localPrecheck.validateAccountAndNetworkStateful(
+        parsedTx,
+        defaultGasPrice,
+        requestDetails,
+      );
+
+      expect(nonceState).to.deep.equal({
+        accountNonce: 10,
+        consensusNonce: 10,
+        mirrorNonce: 12,
+        source: 'consensus',
+      });
+      expect(authoritativeNonceService.getLatestNonceSnapshot.calledOnceWith(parsedTx.from, requestDetails)).to.be.true;
+      expect(localTransactionPoolService.getPendingCount.calledOnceWith(parsedTx.from, 1)).to.be.true;
+    });
+
+    it('reuses the mirror fallback snapshot when consensus nonce is unavailable', async function () {
+      const wallet = ethers.Wallet.createRandom();
+      const signed = await wallet.signTransaction({ ...defaultTx, from: wallet.address, nonce: 12 });
+      const parsedTx = ethers.Transaction.from(signed);
+      const balance = {
+        balance: 1_000_000_000,
+        timestamp: '1654168500.007651338',
+        tokens: [],
+      };
+
+      authoritativeNonceService.getLatestNonceSnapshot.resolves({
+        consensusNonce: null,
+        effectiveNonce: 12,
+        mirrorAccount: {
+          balance,
+          ethereum_nonce: 12,
+          evm_address: parsedTx.from,
+        } as any,
+        mirrorNonce: 12,
+        source: 'mirror',
+      });
+      localTransactionPoolService.getPendingCount.resolves(1);
+
+      const nonceState = await localPrecheck.validateAccountAndNetworkStateful(
+        parsedTx,
+        defaultGasPrice,
+        requestDetails,
+      );
+
+      expect(nonceState).to.deep.equal({
+        accountNonce: 12,
+        consensusNonce: null,
+        mirrorNonce: 12,
+        source: 'mirror',
+      });
+      expect(authoritativeNonceService.getLatestNonceSnapshot.calledOnceWith(parsedTx.from, requestDetails)).to.be.true;
+      expect(localTransactionPoolService.getPendingCount.calledOnceWith(parsedTx.from, 1)).to.be.true;
+    });
+  });
+
   describe('IntrinsicGasCost', function () {
     const smallestContractCreate =
       '6080604052348015600f57600080fd5b50603f80601d6000396000f3fe6080604052600080fdfea26469706673582212209c06253b6069b4e1f720945c020dc1c7b3d74b850eba35ac8b6fb407eff7ca7364736f6c63430008120033';

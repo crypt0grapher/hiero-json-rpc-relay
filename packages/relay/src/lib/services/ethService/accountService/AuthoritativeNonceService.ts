@@ -24,7 +24,13 @@ export class AuthoritativeNonceService {
     'ETH_GET_TRANSACTION_COUNT_CACHE_TTL',
   );
 
+  private readonly consensusTimeoutMs = parseNumericEnvVar(
+    'ETH_GET_TRANSACTION_COUNT_CONSENSUS_TIMEOUT_MS',
+    'ETH_GET_TRANSACTION_COUNT_CONSENSUS_TIMEOUT_MS',
+  );
+
   private readonly inFlightRequests = new Map<string, Promise<AuthoritativeNonceSnapshot | null>>();
+  private readonly consensusLookups = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly cacheService: ICacheClient,
@@ -71,27 +77,13 @@ export class AuthoritativeNonceService {
     }
 
     const mirrorNonce = this.normalizeNonceValue(mirrorAccount.ethereum_nonce, 1);
-    let consensusNonce: number | null = null;
-
-    try {
-      const accountInfo = await this.hapiService.getAccountInfo(
-        mirrorAccount.account,
-        requestDetails,
-        this.getLatestNonceSnapshot.name,
-      );
-      consensusNonce = this.normalizeNonceValue(accountInfo.ethereumNonce, mirrorNonce);
-    } catch (error: any) {
-      this.logger.warn(
-        {
-          accountId: mirrorAccount.account,
-          address,
-          err: error,
-          mirrorNonce,
-          requestId: requestDetails.requestId,
-        },
-        'Failed to retrieve consensus ethereum nonce, falling back to mirror nonce',
-      );
-    }
+    const consensusNonce = await this.getConsensusNonceSnapshot(
+      cacheKey,
+      address,
+      mirrorAccount.account,
+      mirrorNonce,
+      requestDetails,
+    );
 
     const snapshot: AuthoritativeNonceSnapshot = {
       consensusNonce,
@@ -104,6 +96,80 @@ export class AuthoritativeNonceService {
     await this.cacheService.set(cacheKey, snapshot, constants.ETH_GET_TRANSACTION_COUNT, this.cacheTtlMs);
 
     return snapshot;
+  }
+
+  private getOrCreateConsensusLookup(
+    cacheKey: string,
+    accountId: string,
+    requestDetails: RequestDetails,
+  ): Promise<unknown> {
+    const inFlightLookup = this.consensusLookups.get(cacheKey);
+    if (inFlightLookup) {
+      return inFlightLookup;
+    }
+
+    const consensusLookup = this.hapiService
+      .getAccountInfo(accountId, requestDetails, this.getLatestNonceSnapshot.name)
+      .then((accountInfo) => accountInfo.ethereumNonce)
+      .finally(() => {
+        this.consensusLookups.delete(cacheKey);
+      });
+
+    this.consensusLookups.set(cacheKey, consensusLookup);
+    return consensusLookup;
+  }
+
+  private async getConsensusNonceSnapshot(
+    cacheKey: string,
+    address: string,
+    accountId: string,
+    mirrorNonce: number,
+    requestDetails: RequestDetails,
+  ): Promise<number | null> {
+    const consensusLookup = this.getOrCreateConsensusLookup(cacheKey, accountId, requestDetails);
+    const timeoutToken = Symbol('authoritative-nonce-timeout');
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const consensusResult = await Promise.race<unknown | typeof timeoutToken>([
+        consensusLookup,
+        new Promise<typeof timeoutToken>((resolve) => {
+          timeoutId = setTimeout(() => resolve(timeoutToken), this.consensusTimeoutMs);
+        }),
+      ]);
+
+      if (consensusResult === timeoutToken) {
+        this.logger.warn(
+          {
+            accountId,
+            address,
+            consensusLookupTimeoutMs: this.consensusTimeoutMs,
+            mirrorNonce,
+            requestId: requestDetails.requestId,
+          },
+          'Consensus ethereum nonce lookup timed out, falling back to mirror nonce',
+        );
+        return null;
+      }
+
+      return this.normalizeNonceValue(consensusResult, mirrorNonce);
+    } catch (error: any) {
+      this.logger.warn(
+        {
+          accountId,
+          address,
+          err: error,
+          mirrorNonce,
+          requestId: requestDetails.requestId,
+        },
+        'Failed to retrieve consensus ethereum nonce, falling back to mirror nonce',
+      );
+      return null;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
   }
 
   private getCacheKey(address: string): string {
