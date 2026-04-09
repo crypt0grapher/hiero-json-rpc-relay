@@ -91,7 +91,7 @@ export class Precheck {
     parsedTx: ethers.Transaction,
     networkGasPriceInWeiBars: number,
     requestDetails: RequestDetails,
-  ): Promise<void> {
+  ): Promise<{ accountNonce: number }> {
     this.gasPrice(parsedTx, networkGasPriceInWeiBars);
     const mirrorAccountInfo = await this.verifyAccount(parsedTx, requestDetails);
 
@@ -104,6 +104,10 @@ export class Precheck {
     this.balance(parsedTx, mirrorAccountInfo.balance);
     this.accessList(parsedTx);
     await this.receiverAccount(parsedTx, requestDetails);
+
+    return {
+      accountNonce: mirrorAccountInfo.ethereum_nonce,
+    };
   }
 
   /**

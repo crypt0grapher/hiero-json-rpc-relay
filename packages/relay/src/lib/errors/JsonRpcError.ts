@@ -104,15 +104,34 @@ export const predefined = {
       code: -32602,
       message: `Missing value for required parameter ${index}`,
     }),
-  NONCE_TOO_LOW: (nonce, currentNonce) =>
+  NONCE_TOO_LOW: (_nonce, _currentNonce) =>
     new JsonRpcError({
       code: -32000,
       message: `nonce too low`,
     }),
-  NONCE_TOO_HIGH: (nonce, currentNonce) =>
+  NONCE_TOO_HIGH: (_nonce, _currentNonce) =>
     new JsonRpcError({
       code: -32000,
-      message: `nonce too low`,
+      message: `nonce too high`,
+    }),
+  NONCE_CONFLICT: (
+    txNonce: number,
+    observedLatestNonce: number | null,
+    observedPendingNonce: number | null,
+    transactionId?: string,
+    reason: string = 'wrong_nonce_rejected',
+  ) =>
+    new JsonRpcError({
+      code: -32000,
+      message: 'nonce conflict',
+      data: {
+        observedLatestNonce,
+        observedPendingNonce,
+        reason,
+        status: 'WRONG_NONCE',
+        transactionId,
+        txNonce,
+      },
     }),
   NO_MINING_WORK: new JsonRpcError({
     code: -32000,

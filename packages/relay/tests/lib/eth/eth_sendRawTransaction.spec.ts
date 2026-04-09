@@ -1140,10 +1140,17 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
        */
 
       /**
-       * Helper to check if the Mirror Node accounts endpoint was called.
+       * Helper to check how many times the sender account endpoint was called.
        */
-      const wasAccountEndpointCalled = (): boolean => {
-        return restMock.history.get.some((req) => req.url?.includes('accounts/'));
+      const accountEndpointCallCount = (): number => {
+        return restMock.history.get.filter((req) => req.url === accountEndpoint).length;
+      };
+
+      /**
+       * Helper to check if the Mirror Node contract results endpoint was called.
+       */
+      const wasContractResultEndpointCalled = (): boolean => {
+        return restMock.history.get.some((req) => req.url?.includes(MirrorNodeClient['GET_CONTRACT_RESULT_ENDPOINT']));
       };
 
       withOverriddenEnvsInMochaTest({ USE_ASYNC_TX_PROCESSING: false }, () => {
@@ -1171,11 +1178,11 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
             .to.be.rejectedWith(JsonRpcError)
             .and.eventually.satisfy(
               (error: JsonRpcError) =>
-                expect(error.code).to.equal(-32000) && expect(error.message).to.include('nonce too low'),
+                expect(error.code).to.equal(-32000) && expect(error.message).to.include('nonce too high'),
             );
 
-          // Verify accounts endpoint WAS called to get current nonce
-          expect(wasAccountEndpointCalled()).to.be.true;
+          expect(accountEndpointCallCount()).to.equal(1);
+          expect(wasContractResultEndpointCalled()).to.be.false;
         });
 
         it('should throw NONCE_TOO_LOW when transaction nonce < account nonce', async function () {
@@ -1205,11 +1212,11 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
                 expect(error.code).to.equal(-32000) && expect(error.message).to.include('nonce too low'),
             );
 
-          // Verify accounts endpoint WAS called to get current nonce
-          expect(wasAccountEndpointCalled()).to.be.true;
+          expect(accountEndpointCallCount()).to.equal(1);
+          expect(wasContractResultEndpointCalled()).to.be.false;
         });
 
-        it('should throw TRANSACTION_REJECTED when Mirror Node cannot determine nonce discrepancy', async function () {
+        it('should throw NONCE_CONFLICT when WRONG_NONCE matches the relay nonce view', async function () {
           // Create transaction with specific nonce
           const txWithNonce = {
             ...transaction,
@@ -1231,17 +1238,20 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
 
           await expect(ethImpl.sendRawTransaction(signed, requestDetails))
             .to.be.rejectedWith(JsonRpcError)
-            .and.eventually.satisfy(
-              (error: JsonRpcError) =>
-                expect(error.code).to.equal(predefined.TRANSACTION_REJECTED('WRONG_NONCE').code) &&
-                expect(error.message).to.include(predefined.TRANSACTION_REJECTED('WRONG_NONCE').message),
-            );
+            .and.eventually.satisfy((error: JsonRpcError) => {
+              expect(error.code).to.equal(predefined.NONCE_CONFLICT(5, 5, 5, transactionIdServicesFormat).code);
+              expect(error.message).to.equal(predefined.NONCE_CONFLICT(5, 5, 5, transactionIdServicesFormat).message);
+              expect(error.data).to.deep.equal(
+                predefined.NONCE_CONFLICT(5, 5, 5, transactionIdServicesFormat, 'equal_nonce_rejected').data,
+              );
+              return true;
+            });
 
-          // Verify accounts endpoint WAS called
-          expect(wasAccountEndpointCalled()).to.be.true;
+          expect(accountEndpointCallCount()).to.equal(1);
+          expect(wasContractResultEndpointCalled()).to.be.false;
         });
 
-        it('should throw TRANSACTION_REJECTED when Mirror Node request fails', async function () {
+        it('should throw NONCE_CONFLICT without doing a second mirror nonce lookup', async function () {
           // Create transaction with specific nonce
           const txWithNonce = {
             ...transaction,
@@ -1257,10 +1267,9 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
           );
           sdkClientStub.submitEthereumTransaction.throws(wrongNonceError);
 
-          // Reset all handlers, then set up responses:
-          // - network/fees, networkExchangeRate, receiverAccount needed for precheck
-          // - First accountEndpoint call (precheck) succeeds
-          // - Second accountEndpoint call (during WRONG_NONCE handler) fails with 500
+          // Reset all handlers, then set up responses. The second sender-account response
+          // intentionally fails to prove the WRONG_NONCE path no longer performs a second
+          // mirror nonce lookup after consensus has already rejected the transaction.
           restMock.reset();
           restMock.onGet('network/fees').reply(200, JSON.stringify(DEFAULT_NETWORK_FEES));
           restMock.onGet(networkExchangeRateEndpoint).reply(200, JSON.stringify(mockedExchangeRate));
@@ -1273,14 +1282,17 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
 
           await expect(ethImpl.sendRawTransaction(signed, requestDetails))
             .to.be.rejectedWith(JsonRpcError)
-            .and.eventually.satisfy(
-              (error: JsonRpcError) =>
-                expect(error.code).to.equal(predefined.TRANSACTION_REJECTED('WRONG_NONCE').code) &&
-                expect(error.message).to.include(predefined.TRANSACTION_REJECTED('WRONG_NONCE').message),
-            );
+            .and.eventually.satisfy((error: JsonRpcError) => {
+              expect(error.code).to.equal(predefined.NONCE_CONFLICT(5, 5, 5, transactionIdServicesFormat).code);
+              expect(error.message).to.equal(predefined.NONCE_CONFLICT(5, 5, 5, transactionIdServicesFormat).message);
+              expect(error.data).to.deep.equal(
+                predefined.NONCE_CONFLICT(5, 5, 5, transactionIdServicesFormat, 'equal_nonce_rejected').data,
+              );
+              return true;
+            });
 
-          // Verify accounts endpoint WAS called
-          expect(wasAccountEndpointCalled()).to.be.true;
+          expect(accountEndpointCallCount()).to.equal(1);
+          expect(wasContractResultEndpointCalled()).to.be.false;
         });
       });
     });

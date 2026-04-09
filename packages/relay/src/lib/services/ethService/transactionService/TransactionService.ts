@@ -32,6 +32,8 @@ import { ICommonService, LockService, TransactionPoolService } from '../../index
 import { transactionBlockCache } from '../transactionBlockCache';
 import { ITransactionService } from './ITransactionService';
 
+type NonceStateSnapshot = Awaited<ReturnType<Precheck['validateAccountAndNetworkStateful']>>;
+
 export class TransactionService implements ITransactionService {
   /**
    * The cache service used for caching responses.
@@ -380,6 +382,7 @@ export class TransactionService implements ITransactionService {
 
     let lockResult: LockAcquisitionResult | undefined;
     let networkGasPriceInWeiBars: number;
+    let nonceStateSnapshot: NonceStateSnapshot | undefined;
 
     try {
       // Acquire lock before async operations
@@ -396,7 +399,11 @@ export class TransactionService implements ITransactionService {
           JSON.stringify(parsedTx),
         );
       }
-      await this.precheck.validateAccountAndNetworkStateful(parsedTx, networkGasPriceInWeiBars, requestDetails);
+      nonceStateSnapshot = await this.precheck.validateAccountAndNetworkStateful(
+        parsedTx,
+        networkGasPriceInWeiBars,
+        requestDetails,
+      );
     } catch (error) {
       // Release lock on any error during validation or prechecks
       if (lockResult) {
@@ -419,6 +426,7 @@ export class TransactionService implements ITransactionService {
         parsedTx,
         networkGasPriceInWeiBars,
         lockResult,
+        nonceStateSnapshot,
         requestDetails,
       );
       return Utils.computeTransactionHash(transactionBuffer);
@@ -433,6 +441,7 @@ export class TransactionService implements ITransactionService {
       parsedTx,
       networkGasPriceInWeiBars,
       lockResult,
+      nonceStateSnapshot,
       requestDetails,
     );
   }
@@ -843,6 +852,7 @@ export class TransactionService implements ITransactionService {
     parsedTx: EthersTransaction,
     networkGasPriceInWeiBars: number,
     lockResult: LockAcquisitionResult | undefined,
+    nonceStateSnapshot: NonceStateSnapshot | undefined,
     requestDetails: RequestDetails,
   ): Promise<string | JsonRpcError> {
     const originalCallerAddress = parsedTx.from?.toString() || '';
@@ -865,7 +875,7 @@ export class TransactionService implements ITransactionService {
     await this.transactionPoolService.removeTransaction(originalCallerAddress, parsedTx.serialized);
 
     // Handle submission errors - throws for definitive failures, returns for MN polling cases
-    await this.handleSubmissionError(error, parsedTx, requestDetails);
+    await this.handleSubmissionError(error, parsedTx, requestDetails, submittedTransactionId, nonceStateSnapshot);
 
     return this.getTransactionHashFromMirrorNode(submittedTransactionId, error, requestDetails);
   }
@@ -881,17 +891,20 @@ export class TransactionService implements ITransactionService {
    * 2. Non-SDK error → throw as-is (application-level failure)
    * 3. SDK timeout error → throw as-is (network failure)
    * 4. Pre-execution failure (in HEDERA_SPECIFIC_REVERT_STATUSES):
-   *    - WRONG_NONCE: fetch account nonce from MN
+   *    - WRONG_NONCE: use the precheck nonce snapshot plus current tx-pool state
    *      - If nonce too high → throw NONCE_TOO_HIGH
    *      - If nonce too low → throw NONCE_TOO_LOW
-   *      - If unable to determine → fallback to original status
+   *      - If equal or unavailable → throw NONCE_CONFLICT with context
    *    - Others: throws TRANSACTION_REJECTED with status details
    * 5. Post-execution failure → return (proceed to MN polling for tx hash)
    *
    * @param error - The error from transaction submission, or null/undefined if successful
    * @param parsedTx - The parsed transaction for nonce comparison (used for WRONG_NONCE handling)
    * @param requestDetails - Request details for logging and tracking
+   * @param submittedTransactionId - The submitted transaction ID for log/error context
+   * @param nonceStateSnapshot - Stateful precheck nonce snapshot captured before submission
    * @throws {JsonRpcError} NONCE_TOO_HIGH or NONCE_TOO_LOW for wrong nonce errors
+   * @throws {JsonRpcError} NONCE_CONFLICT for equal or unavailable wrong nonce context
    * @throws {JsonRpcError} TRANSACTION_REJECTED for pre-execution failures
    * @throws {Error} Original error for non-SDK or timeout errors
    */
@@ -899,6 +912,8 @@ export class TransactionService implements ITransactionService {
     error: any,
     parsedTx: EthersTransaction,
     requestDetails: RequestDetails,
+    submittedTransactionId: string,
+    nonceStateSnapshot: NonceStateSnapshot | undefined,
   ): Promise<void> {
     // No error - proceed to MN polling for transaction validation and txhash retrieval
     if (!error) {
@@ -929,23 +944,41 @@ export class TransactionService implements ITransactionService {
         } else {
           this.wrongNonceMetric.labels(this.lockService.getStrategyType()).inc();
         }
-        let accountNonce: number | null = null;
-        try {
-          accountNonce = (await this.mirrorNodeClient.getAccount(parsedTx.from!, requestDetails))?.ethereum_nonce;
-        } catch (mirrorNodeError) {
-          // Mirror Node request failed (e.g., 404, 429, 5xx)
-          // Simply ignore and fallback to the original rejection to avoid masking the true error
-          this.logger.debug(mirrorNodeError, `Failed to fetch account nonce for WRONG_NONCE error handling`);
-        }
+        const mirrorLatestNonce = nonceStateSnapshot?.accountNonce ?? null;
+        const pendingCount = parsedTx.from ? await this.transactionPoolService.getPendingCount(parsedTx.from, 0) : 0;
+        const relayPendingNonce = mirrorLatestNonce != null ? mirrorLatestNonce + pendingCount : null;
 
-        // Determine if nonce is too high or too low
-        if (accountNonce != null && accountNonce !== parsedTx.nonce) {
-          if (parsedTx.nonce > accountNonce) {
-            throw predefined.NONCE_TOO_HIGH(parsedTx.nonce, accountNonce);
-          } else {
-            throw predefined.NONCE_TOO_LOW(parsedTx.nonce, accountNonce);
+        this.logger.warn(
+          {
+            hederaStatus: error.status.toString(),
+            mirrorLatestNonce,
+            pod: process.env.HOSTNAME ?? 'unknown',
+            relayPendingNonce,
+            requestId: requestDetails.requestId,
+            sender: parsedTx.from ?? null,
+            transactionId: submittedTransactionId,
+            txNonce: parsedTx.nonce,
+          },
+          'Consensus rejected transaction with WRONG_NONCE',
+        );
+
+        if (mirrorLatestNonce != null) {
+          if (parsedTx.nonce > mirrorLatestNonce) {
+            throw predefined.NONCE_TOO_HIGH(parsedTx.nonce, mirrorLatestNonce);
+          }
+
+          if (parsedTx.nonce < mirrorLatestNonce) {
+            throw predefined.NONCE_TOO_LOW(parsedTx.nonce, mirrorLatestNonce);
           }
         }
+
+        throw predefined.NONCE_CONFLICT(
+          parsedTx.nonce,
+          mirrorLatestNonce,
+          relayPendingNonce,
+          submittedTransactionId,
+          mirrorLatestNonce == null ? 'nonce_state_unavailable' : 'equal_nonce_rejected',
+        );
       }
 
       // All other pre-execution failures throw TRANSACTION_REJECTED (-32003)
