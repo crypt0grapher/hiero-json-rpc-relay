@@ -28,7 +28,7 @@ const registry = new Registry();
 import sinon from 'sinon';
 
 import { CacheClientFactory } from '../../src/lib/factories/cacheClientFactory';
-import { CommonService } from '../../src/lib/services';
+import { AuthoritativeNonceService, CommonService } from '../../src/lib/services';
 import { TransactionPoolService } from '../../src/lib/services/transactionPoolService/transactionPoolService';
 import { RequestDetails } from '../../src/lib/types';
 
@@ -100,7 +100,24 @@ describe('Precheck', async function () {
       instance,
     );
     const transactionPoolService = sinon.createStubInstance(TransactionPoolService);
-    precheck = new Precheck(mirrorNodeInstance, '0x12a', transactionPoolService);
+    const authoritativeNonceService = {
+      async getLatestNonceSnapshot(address: string, currentRequestDetails: RequestDetails) {
+        const account = await mirrorNodeInstance.getAccount(address, currentRequestDetails);
+        if (account == null) {
+          return null;
+        }
+
+        const effectiveNonce = account.ethereum_nonce ?? 1;
+        return {
+          consensusNonce: effectiveNonce,
+          effectiveNonce,
+          mirrorAccount: account,
+          mirrorNonce: effectiveNonce,
+          source: 'consensus',
+        };
+      },
+    } as AuthoritativeNonceService;
+    precheck = new Precheck(mirrorNodeInstance, '0x12a', transactionPoolService, authoritativeNonceService);
   });
 
   this.beforeEach(() => {

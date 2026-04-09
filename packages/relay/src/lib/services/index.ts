@@ -5,6 +5,7 @@ export * from './ethService/ethFilterService/FilterService';
 export * from './ethService/ethFilterService/IFilterService';
 export * from './metricService/metricService';
 export * from './ethService/accountService/AccountService';
+export * from './ethService/accountService/AuthoritativeNonceService';
 export * from './ethService/accountService/IAccountService';
 export * from './ethService/blockService/BlockService';
 export * from './ethService/blockService/IBlockService';

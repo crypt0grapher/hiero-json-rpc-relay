@@ -7,7 +7,7 @@ import { prepend0x } from '../formatters';
 import { MirrorNodeClient } from './clients';
 import constants from './constants';
 import { predefined } from './errors/JsonRpcError';
-import { CommonService, TransactionPoolService } from './services';
+import { AuthoritativeNonceService, CommonService, TransactionPoolService } from './services';
 import { RequestDetails } from './types';
 import { IAccountBalance } from './types/mirrorNode';
 
@@ -18,6 +18,7 @@ export class Precheck {
   private readonly mirrorNodeClient: MirrorNodeClient;
   private readonly chain: string;
   private readonly transactionPoolService: TransactionPoolService;
+  private readonly authoritativeNonceService: AuthoritativeNonceService;
 
   /**
    * Creates an instance of Precheck.
@@ -25,10 +26,16 @@ export class Precheck {
    * @param chainId - The chain ID.
    * @param transactionPoolService
    */
-  constructor(mirrorNodeClient: MirrorNodeClient, chainId: string, transactionPoolService: TransactionPoolService) {
+  constructor(
+    mirrorNodeClient: MirrorNodeClient,
+    chainId: string,
+    transactionPoolService: TransactionPoolService,
+    authoritativeNonceService: AuthoritativeNonceService,
+  ) {
     this.mirrorNodeClient = mirrorNodeClient;
     this.chain = chainId;
     this.transactionPoolService = transactionPoolService;
+    this.authoritativeNonceService = authoritativeNonceService;
   }
 
   /**
@@ -93,20 +100,21 @@ export class Precheck {
     requestDetails: RequestDetails,
   ): Promise<{ accountNonce: number }> {
     this.gasPrice(parsedTx, networkGasPriceInWeiBars);
-    const mirrorAccountInfo = await this.verifyAccount(parsedTx, requestDetails);
+    const nonceState = await this.getAccountNonceState(parsedTx, requestDetails);
+    const mirrorAccountInfo = nonceState.mirrorAccount;
 
     // We expect this check to be executed against a transaction that is already
     // in the TxPool, which is why we subtract 1 from the TxPool size, to avoid
     // counting it twice.
     const pendingTransactions = await this.transactionPoolService.getPendingCount(parsedTx.from!, 1);
-    const signerNonce = mirrorAccountInfo.ethereum_nonce + pendingTransactions - 1;
+    const signerNonce = nonceState.effectiveNonce + pendingTransactions - 1;
     this.nonce(parsedTx, signerNonce);
     this.balance(parsedTx, mirrorAccountInfo.balance);
     this.accessList(parsedTx);
     await this.receiverAccount(parsedTx, requestDetails);
 
     return {
-      accountNonce: mirrorAccountInfo.ethereum_nonce,
+      accountNonce: nonceState.effectiveNonce,
     };
   }
 
@@ -116,12 +124,7 @@ export class Precheck {
    * @param requestDetails - The request details for logging and tracking.
    */
   async verifyAccount(tx: Transaction, requestDetails: RequestDetails): Promise<any> {
-    const accountInfo = await this.mirrorNodeClient.getAccount(tx.from!, requestDetails);
-    if (accountInfo == null) {
-      throw predefined.RESOURCE_NOT_FOUND(`address '${tx.from}'.`);
-    }
-
-    return accountInfo;
+    return (await this.getAccountNonceState(tx, requestDetails)).mirrorAccount;
   }
 
   /**
@@ -360,5 +363,14 @@ export class Precheck {
         throw predefined.RECEIVER_SIGNATURE_ENABLED;
       }
     }
+  }
+
+  private async getAccountNonceState(tx: Transaction, requestDetails: RequestDetails) {
+    const nonceState = await this.authoritativeNonceService.getLatestNonceSnapshot(tx.from!, requestDetails);
+    if (nonceState == null) {
+      throw predefined.RESOURCE_NOT_FOUND(`address '${tx.from}'.`);
+    }
+
+    return nonceState;
   }
 }

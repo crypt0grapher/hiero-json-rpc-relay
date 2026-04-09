@@ -28,7 +28,7 @@ import {
   TypedEvents,
 } from '../../../types';
 import HAPIService from '../../hapiService/hapiService';
-import { ICommonService, LockService, TransactionPoolService } from '../../index';
+import { AuthoritativeNonceService, ICommonService, LockService, TransactionPoolService } from '../../index';
 import { transactionBlockCache } from '../transactionBlockCache';
 import { ITransactionService } from './ITransactionService';
 
@@ -141,6 +141,7 @@ export class TransactionService implements ITransactionService {
     transactionPoolService: TransactionPoolService,
     lockService: LockService,
     registry: Registry,
+    authoritativeNonceService: AuthoritativeNonceService,
   ) {
     this.cacheService = cacheService;
     this.chain = chain;
@@ -149,7 +150,7 @@ export class TransactionService implements ITransactionService {
     this.hapiService = hapiService;
     this.logger = logger;
     this.mirrorNodeClient = mirrorNodeClient;
-    this.precheck = new Precheck(mirrorNodeClient, chain, transactionPoolService);
+    this.precheck = new Precheck(mirrorNodeClient, chain, transactionPoolService, authoritativeNonceService);
     this.transactionPoolService = transactionPoolService;
     this.lockService = lockService;
 

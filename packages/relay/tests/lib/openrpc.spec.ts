@@ -133,6 +133,11 @@ describe('Open RPC Specification', function () {
 
     clientServiceInstance = new ClientService(logger, registry, hbarLimitService);
     sdkClientStub = sinon.createStubInstance(SDKClient);
+    sdkClientStub.getAccountInfo.resolves({
+      ethereumNonce: {
+        toNumber: () => 0,
+      },
+    } as any);
     sinon.stub(clientServiceInstance, 'getSDKClient').returns(sdkClientStub);
     const lockServiceStub = sinon.createStubInstance(LockService);
     lockServiceStub.acquireLock.resolves(undefined);

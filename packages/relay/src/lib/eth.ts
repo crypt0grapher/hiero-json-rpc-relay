@@ -13,6 +13,7 @@ import { JsonRpcError, predefined } from './errors/JsonRpcError';
 import { Block, Log, Transaction } from './model';
 import {
   AccountService,
+  AuthoritativeNonceService,
   BlockService,
   CommonService,
   ContractService,
@@ -138,6 +139,12 @@ export class EthImpl implements Eth {
     this.eventEmitter = new EventEmitter<TypedEvents>();
 
     this.common = new CommonService(mirrorNodeClient, logger, cacheService);
+    const authoritativeNonceService = new AuthoritativeNonceService(
+      cacheService,
+      logger,
+      mirrorNodeClient,
+      hapiService,
+    );
     this.filterService = new FilterService(mirrorNodeClient, logger, cacheService, this.common);
     this.feeService = new FeeService(this.common, logger);
     this.contractService = new ContractService(cacheService, this.common, hapiService, logger, mirrorNodeClient);
@@ -153,6 +160,7 @@ export class EthImpl implements Eth {
       transactionPoolService,
       lockService,
       registry,
+      authoritativeNonceService,
     );
     this.accountService = new AccountService(
       cacheService,
@@ -160,6 +168,7 @@ export class EthImpl implements Eth {
       logger,
       mirrorNodeClient,
       transactionPoolService,
+      authoritativeNonceService,
     );
   }
 

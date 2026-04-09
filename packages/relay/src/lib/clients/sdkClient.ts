@@ -3,6 +3,8 @@
 import { ConfigService } from '@hashgraph/json-rpc-config-service/dist/services';
 import {
   AccountId,
+  AccountInfo,
+  AccountInfoQuery,
   Client,
   EthereumTransaction,
   EthereumTransactionData,
@@ -245,6 +247,29 @@ export class SDKClient {
         paymasterInfo?.accountId ? this.paymasterClients.get(paymasterInfo.accountId) : undefined,
       ),
     };
+  }
+
+  /**
+   * Retrieves account info directly from consensus, including ethereum nonce.
+   *
+   * @param accountId - The Hedera account ID to query.
+   * @param requestDetails - The request details for logging and tracking.
+   * @param callerName - The caller name for logging and accounting.
+   * @param originalCallerAddress - Optional original caller address.
+   * @returns Consensus account info.
+   */
+  public async getAccountInfo(
+    accountId: string,
+    requestDetails: RequestDetails,
+    callerName: string,
+    originalCallerAddress?: string,
+  ): Promise<AccountInfo> {
+    return this.executeQuery(
+      new AccountInfoQuery().setAccountId(accountId),
+      callerName,
+      requestDetails,
+      originalCallerAddress,
+    );
   }
 
   /**

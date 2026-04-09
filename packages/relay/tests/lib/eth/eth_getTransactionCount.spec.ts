@@ -58,6 +58,13 @@ describe('@ethGetTransactionCount eth_getTransactionCount spec', async function 
   overrideEnvsInMochaDescribe({ ETH_GET_TRANSACTION_COUNT_MAX_BLOCK_RANGE: 1 });
 
   this.beforeEach(() => {
+    sdkClientStub = sinon.createStubInstance(SDKClient);
+    getSdkClientStub = sinon.stub(hapiServiceInstance, 'getSDKClient').returns(sdkClientStub);
+    sdkClientStub.getAccountInfo.resolves({
+      ethereumNonce: {
+        toNumber: () => mockData.account.ethereum_nonce,
+      },
+    } as any);
     restMock.onGet('network/fees').reply(200, JSON.stringify(DEFAULT_NETWORK_FEES));
     restMock.onGet(blockPath).reply(200, JSON.stringify(mockData.blocks.blocks[2]));
     restMock.onGet(accountPath).reply(200, JSON.stringify(mockData.account));
@@ -85,11 +92,6 @@ describe('@ethGetTransactionCount eth_getTransactionCount spec', async function 
     restMock.reset();
   });
 
-  this.beforeAll(async () => {
-    sdkClientStub = sinon.createStubInstance(SDKClient);
-    getSdkClientStub = sinon.stub(hapiServiceInstance, 'getSDKClient').returns(sdkClientStub);
-  });
-
   it('should return 0x0 nonce for latest block with not found account', async () => {
     restMock.onGet(contractPath).reply(404, JSON.stringify(mockData.notFound));
     restMock.onGet(accountPath).reply(404, JSON.stringify(mockData.notFound));
@@ -101,6 +103,29 @@ describe('@ethGetTransactionCount eth_getTransactionCount spec', async function 
   it('should return latest nonce for latest block but valid account', async () => {
     restMock.onGet(contractPath).reply(404, JSON.stringify(mockData.notFound));
     restMock.onGet(accountPath).reply(200, JSON.stringify(mockData.account));
+    const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, 'latest', requestDetails);
+    expect(nonce).to.exist;
+    expect(nonce).to.equal(numberTo0x(mockData.account.ethereum_nonce));
+  });
+
+  it('should return consensus nonce for latest block when mirror is ahead', async () => {
+    const mirrorAheadNonce = mockData.account.ethereum_nonce + 1;
+    sdkClientStub.getAccountInfo.resolves({
+      ethereumNonce: {
+        toNumber: () => mockData.account.ethereum_nonce,
+      },
+    } as any);
+    restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: mirrorAheadNonce }));
+
+    const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, 'latest', requestDetails);
+    expect(nonce).to.exist;
+    expect(nonce).to.equal(numberTo0x(mockData.account.ethereum_nonce));
+  });
+
+  it('should fall back to mirror nonce when consensus lookup fails', async () => {
+    sdkClientStub.getAccountInfo.rejects(new Error('consensus unavailable'));
+    restMock.onGet(accountPath).reply(200, JSON.stringify(mockData.account));
+
     const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, 'latest', requestDetails);
     expect(nonce).to.exist;
     expect(nonce).to.equal(numberTo0x(mockData.account.ethereum_nonce));
@@ -146,7 +171,12 @@ describe('@ethGetTransactionCount eth_getTransactionCount spec', async function 
     it('should return pending nonce for pending block', async () => {
       const pendingTxs: number = 2;
       stub(ethImpl['accountService']['transactionPoolService'], 'getPendingCount').returns(pendingTxs);
-      restMock.onGet(accountPath).reply(200, JSON.stringify(mockData.account));
+      sdkClientStub.getAccountInfo.resolves({
+        ethereumNonce: {
+          toNumber: () => mockData.account.ethereum_nonce,
+        },
+      } as any);
+      restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: 0 }));
       const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_PENDING, requestDetails);
       expect(nonce).to.exist;
       expect(nonce).to.equal(numberTo0x(mockData.account.ethereum_nonce + pendingTxs));
@@ -317,6 +347,7 @@ describe('@ethGetTransactionCount eth_getTransactionCount spec', async function 
   });
 
   it('should return 0x1 for pre-hip-729 contracts with nonce=null', async () => {
+    sdkClientStub.getAccountInfo.resolves({ ethereumNonce: null } as any);
     restMock.onGet(accountPath).reply(200, JSON.stringify({ ...mockData.account, ethereum_nonce: null }));
     const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, constants.BLOCK_LATEST, requestDetails);
     expect(nonce).to.exist;

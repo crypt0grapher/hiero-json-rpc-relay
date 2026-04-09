@@ -27,6 +27,7 @@ import { predefined } from './errors/JsonRpcError';
 import { BlockFactory } from './factories/blockFactory';
 import { Block } from './model';
 import {
+  AuthoritativeNonceService,
   BlockService,
   CommonService,
   IBlockService,
@@ -121,6 +122,12 @@ export class DebugImpl implements Debug {
   ) {
     this.logger = logger;
     this.common = new CommonService(mirrorNodeClient, logger, cacheService);
+    const authoritativeNonceService = new AuthoritativeNonceService(
+      cacheService,
+      logger,
+      mirrorNodeClient,
+      hapiService,
+    );
     this.mirrorNodeClient = mirrorNodeClient;
     this.cacheService = cacheService;
     this.blockService = new BlockService(cacheService, chainId, this.common, mirrorNodeClient, logger);
@@ -135,6 +142,7 @@ export class DebugImpl implements Debug {
       transactionPoolService,
       lockService,
       registry,
+      authoritativeNonceService,
     );
   }
 

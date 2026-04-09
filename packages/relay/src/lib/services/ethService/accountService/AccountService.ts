@@ -11,6 +11,7 @@ import { RequestDetails } from '../../../types';
 import { LatestBlockNumberTimestamp } from '../../../types/mirrorNode';
 import { TransactionPoolService } from '../../transactionPoolService/transactionPoolService';
 import { ICommonService } from '../ethCommonService/ICommonService';
+import { AuthoritativeNonceService } from './AuthoritativeNonceService';
 import { IAccountService } from './IAccountService';
 
 export class AccountService implements IAccountService {
@@ -78,6 +79,13 @@ export class AccountService implements IAccountService {
   private readonly transactionPoolService: TransactionPoolService;
 
   /**
+   * Shared nonce authority used by the read path and send-time prechecks.
+   *
+   * @private
+   */
+  private readonly authoritativeNonceService: AuthoritativeNonceService;
+
+  /**
    * @constructor
    * @param cacheService
    * @param common
@@ -90,12 +98,14 @@ export class AccountService implements IAccountService {
     logger: Logger,
     mirrorNodeClient: MirrorNodeClient,
     transactionPoolService: TransactionPoolService,
+    authoritativeNonceService: AuthoritativeNonceService,
   ) {
     this.cacheService = cacheService;
     this.common = common;
     this.logger = logger;
     this.mirrorNodeClient = mirrorNodeClient;
     this.transactionPoolService = transactionPoolService;
+    this.authoritativeNonceService = authoritativeNonceService;
   }
 
   /**
@@ -313,11 +323,17 @@ export class AccountService implements IAccountService {
       // previewnet and testnet bug have a genesis blockNumber of 1 but non system account were yet to be created
       return constants.ZERO_HEX;
     } else if (this.common.blockTagIsLatestOrPending(blockNumOrTag)) {
-      const mnNonce = await this.getAccountLatestEthereumNonce(address, requestDetails);
-      if (blockNumOrTag == constants.BLOCK_PENDING) {
-        return numberTo0x(Number(mnNonce) + (await this.transactionPoolService.getPendingCount(address)));
+      const latestNonceSnapshot = await this.authoritativeNonceService.getLatestNonceSnapshot(address, requestDetails);
+      if (latestNonceSnapshot == null) {
+        return constants.ZERO_HEX;
       }
-      return mnNonce;
+
+      if (blockNumOrTag == constants.BLOCK_PENDING) {
+        return numberTo0x(
+          latestNonceSnapshot.effectiveNonce + (await this.transactionPoolService.getPendingCount(address)),
+        );
+      }
+      return numberTo0x(latestNonceSnapshot.effectiveNonce);
     } else if (blockNumOrTag === constants.BLOCK_EARLIEST) {
       return await this.getAccountNonceForEarliestBlock(requestDetails);
     } else if (!isNaN(blockNum) && blockNumOrTag.length != constants.BLOCK_HASH_LENGTH && blockNum > 0) {
@@ -419,12 +435,9 @@ export class AccountService implements IAccountService {
   }
 
   private async getAccountLatestEthereumNonce(address: string, requestDetails: RequestDetails): Promise<string> {
-    const accountData = await this.mirrorNodeClient.getAccount(address, requestDetails);
-    if (accountData) {
-      // With HIP-729, ethereum_nonce should always be 0+. Historical contracts may
-      // have null as nonce was not tracked — return EVM-compliant 0x1 in that case.
-      const mirrorNonce = accountData.ethereum_nonce !== null ? accountData.ethereum_nonce : 1;
-      return numberTo0x(mirrorNonce);
+    const latestNonceSnapshot = await this.authoritativeNonceService.getLatestNonceSnapshot(address, requestDetails);
+    if (latestNonceSnapshot) {
+      return numberTo0x(latestNonceSnapshot.effectiveNonce);
     }
 
     return constants.ZERO_HEX;

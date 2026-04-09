@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ConfigService } from '@hashgraph/json-rpc-config-service/dist/services';
-import { AccountId, FileId, PublicKey, TransactionResponse } from '@hashgraph/sdk';
+import { AccountId, AccountInfo, FileId, PublicKey, TransactionResponse } from '@hashgraph/sdk';
 import { EventEmitter } from 'events';
 import { Logger } from 'pino';
 import { Counter, Registry } from 'prom-client';
@@ -251,6 +251,19 @@ export default class HAPIService {
       networkGasPriceInWeiBars,
       currentNetworkExchangeRateInCents,
     );
+  }
+
+  /**
+   * Wrapper around the SDK client's `getAccountInfo` method.
+   *
+   * See {@link SDKClient.getAccountInfo} for more details.
+   */
+  public async getAccountInfo(
+    accountId: string,
+    requestDetails: RequestDetails,
+    callerName = 'getAccountInfo',
+  ): Promise<AccountInfo> {
+    return this.getSDKClient().getAccountInfo(accountId, requestDetails, callerName);
   }
 
   /**
