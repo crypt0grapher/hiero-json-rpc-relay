@@ -7,7 +7,6 @@ import sinon from 'sinon';
 import { SDKClient } from '../../../src/lib/clients';
 import constants from '../../../src/lib/constants';
 import { JsonRpcError, predefined } from '../../../src/lib/errors/JsonRpcError';
-import { MirrorNodeClientError } from '../../../src/lib/errors/MirrorNodeClientError';
 import type { ContractService } from '../../../src/lib/services';
 import type HAPIService from '../../../src/lib/services/hapiService/hapiService';
 import { IContractCallRequest, IContractCallResponse, RequestDetails } from '../../../src/lib/types';
@@ -20,6 +19,7 @@ import {
   ethCallFailing,
   mockData,
   overrideEnvsInMochaDescribe,
+  withOverriddenEnvsInMochaTest,
 } from '../../helpers';
 import {
   ACCOUNT_ADDRESS_1,
@@ -58,7 +58,7 @@ let getSdkClientStub: sinon.SinonStubbedMember<HAPIServiceTest['getSDKClient']>;
 
 describe('@ethCall Eth Call spec', async function () {
   this.timeout(10000);
-  const { restMock, web3Mock, hapiServiceInstance, ethImpl, cacheService } = generateEthTestEnv();
+  const { restMock, web3Mock, hapiServiceInstance, ethImpl, cacheService, registry } = generateEthTestEnv();
 
   const contractService = ethImpl['contractService'] as ContractServiceTest;
 
@@ -139,6 +139,108 @@ describe('@ethCall Eth Call spec', async function () {
         requestDetails,
       );
       assert(callMirrorNodeSpy.calledOnce);
+    });
+
+    withOverriddenEnvsInMochaTest({ STATE_OVERRIDE_UNSUPPORTED_BEHAVIOR: 'ignore' }, () => {
+      it('ignores well-formed stateOverride for eth_call, logs it, and does not forward it downstream', async function () {
+        const infoLoggerSpy = sandbox.spy((ethImpl as any).logger, 'info');
+        const callData = {
+          from: ACCOUNT_ADDRESS_1,
+          to: CONTRACT_ADDRESS_2,
+          data: CONTRACT_CALL_DATA,
+          gas: MAX_GAS_LIMIT_HEX,
+        };
+
+        restMock.onGet(`contracts/${ACCOUNT_ADDRESS_1}`).reply(404);
+        restMock.onGet(`contracts/${CONTRACT_ADDRESS_2}`).reply(200, JSON.stringify(DEFAULT_CONTRACT));
+        web3Mock.onPost('contracts/call').reply(200, JSON.stringify({ result: '0x1' }));
+
+        const baseline = await ethImpl.call(callData, 'latest', requestDetails);
+        const withOverride = await ethImpl.call(
+          callData,
+          'latest',
+          {
+            [CONTRACT_ADDRESS_2]: {
+              balance: '0x1',
+              nonce: '0x2',
+            },
+          },
+          requestDetails,
+        );
+
+        expect(withOverride).to.equal(baseline);
+        assert(callMirrorNodeSpy.calledTwice);
+
+        const lastPost = web3Mock.history.post.at(-1);
+        expect(lastPost).to.not.be.undefined;
+        expect(JSON.parse(lastPost!.data)).to.not.have.property('stateOverride');
+
+        const metric = await registry.getSingleMetric('rpc_relay_unsupported_state_override_total');
+        if (!metric) throw new Error('Expected unsupported stateOverride metric to be registered');
+        const metricValues = await metric.get();
+        const ignoredCallMetric = metricValues.values.find(
+          (value) => value.labels.method === constants.ETH_CALL && value.labels.behavior === 'ignore',
+        );
+        expect(ignoredCallMetric?.value).to.equal(1);
+
+        const ignoreLogCall = infoLoggerSpy
+          .getCalls()
+          .find((call) => call.args[1] === 'Ignoring unsupported stateOverride payload');
+        expect(ignoreLogCall).to.not.be.undefined;
+        expect(ignoreLogCall?.args[0]).to.deep.include({
+          behavior: 'ignore',
+          method: constants.ETH_CALL,
+          overrideAddressCount: 1,
+          requestId: requestDetails.requestId,
+        });
+        expect(ignoreLogCall?.args[0].overrideFieldKinds).to.deep.equal(['balance', 'nonce']);
+      });
+    });
+
+    it('rejects stateOverride explicitly instead of accepting and dropping it', async function () {
+      await expect(
+        ethImpl.call(
+          {
+            from: ACCOUNT_ADDRESS_1,
+            to: CONTRACT_ADDRESS_2,
+            data: CONTRACT_CALL_DATA,
+            gas: MAX_GAS_LIMIT_HEX,
+          },
+          'latest',
+          {
+            [CONTRACT_ADDRESS_2]: {
+              balance: '0x1',
+            },
+          },
+          requestDetails,
+        ),
+      )
+        .to.be.rejectedWith(JsonRpcError)
+        .and.eventually.include({
+          code: -32602,
+          message: 'Invalid parameter 2: stateOverride is not supported',
+        });
+    });
+
+    it('rejects non-object stateOverride values through parameter validation', async function () {
+      await expect(
+        ethImpl.call(
+          {
+            from: ACCOUNT_ADDRESS_1,
+            to: CONTRACT_ADDRESS_2,
+            data: CONTRACT_CALL_DATA,
+            gas: MAX_GAS_LIMIT_HEX,
+          },
+          'latest',
+          'not-an-object' as any,
+          requestDetails,
+        ),
+      )
+        .to.be.rejectedWith(JsonRpcError)
+        .and.eventually.include({
+          code: -32602,
+          message: 'Invalid parameter 2: Expected StateOverride object',
+        });
     });
 
     it('to field is not a contract or token', async function () {

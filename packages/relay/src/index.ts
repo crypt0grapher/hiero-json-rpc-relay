@@ -73,7 +73,12 @@ export interface TxPool {
 export interface Eth {
   blockNumber(requestDetails: RequestDetails): Promise<string>;
 
-  call(call: any, blockParam: string | object | null, requestDetails: RequestDetails): Promise<string | JsonRpcError>;
+  call(
+    call: any,
+    blockParam: string | object | null,
+    stateOverrideOrRequestDetails: Record<string, unknown> | RequestDetails | null | undefined,
+    requestDetails?: RequestDetails,
+  ): Promise<string | JsonRpcError>;
 
   coinbase(): JsonRpcError;
 
@@ -84,7 +89,8 @@ export interface Eth {
   estimateGas(
     transaction: IContractCallRequest,
     blockParam: string | null,
-    requestDetails: RequestDetails,
+    stateOverrideOrRequestDetails: Record<string, unknown> | RequestDetails | null | undefined,
+    requestDetails?: RequestDetails,
   ): Promise<string | JsonRpcError>;
 
   gasPrice(requestDetails: RequestDetails): Promise<string>;

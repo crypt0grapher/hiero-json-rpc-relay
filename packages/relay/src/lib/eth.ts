@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { ConfigService } from '@hashgraph/json-rpc-config-service/dist/services';
 import { EventEmitter } from 'events';
 import { Logger } from 'pino';
-import { Registry } from 'prom-client';
+import { Counter, Registry } from 'prom-client';
 
 import { Eth } from '../index';
 import { MirrorNodeClient } from './clients';
@@ -106,6 +107,12 @@ export class EthImpl implements Eth {
   private readonly logger: Logger;
 
   /**
+   * Counter for unsupported stateOverride payloads handled by the relay.
+   * @private
+   */
+  private readonly unsupportedStateOverrideCounter: Counter;
+
+  /**
    * The Transaction Service implementation that handles all transaction-related operations.
    * @private
    */
@@ -149,6 +156,7 @@ export class EthImpl implements Eth {
     this.feeService = new FeeService(this.common, logger);
     this.contractService = new ContractService(cacheService, this.common, hapiService, logger, mirrorNodeClient);
     this.blockService = new BlockService(cacheService, chain, this.common, mirrorNodeClient, logger);
+    this.unsupportedStateOverrideCounter = this.initUnsupportedStateOverrideCounter(registry);
     this.transactionService = new TransactionService(
       cacheService,
       chain,
@@ -267,13 +275,21 @@ export class EthImpl implements Eth {
   @rpcParamValidationRules({
     0: { type: 'transaction', required: true },
     1: { type: 'blockNumber', required: false },
+    2: { type: 'stateOverride', required: false },
   })
-  @rpcParamLayoutConfig(RPC_LAYOUT.custom((params) => [params[0], params[1]]))
+  @rpcParamLayoutConfig(RPC_LAYOUT.custom((params) => [params[0], params[1], params[2]]))
   async estimateGas(
     transaction: IContractCallRequest,
     _blockParam: string | null,
-    requestDetails: RequestDetails,
+    stateOverrideOrRequestDetails: Record<string, unknown> | RequestDetails | null | undefined,
+    requestDetails?: RequestDetails,
   ): Promise<string> {
+    const { requestDetails: resolvedRequestDetails, stateOverride } = this.resolveStateOverrideArgs(
+      stateOverrideOrRequestDetails,
+      requestDetails,
+    );
+    this.handleUnsupportedStateOverride(constants.ETH_ESTIMATE_GAS, stateOverride, resolvedRequestDetails);
+
     // Removing empty '0x' data parameter sent by Metamask
     if (transaction.data === '0x') {
       delete transaction.data;
@@ -288,7 +304,7 @@ export class EthImpl implements Eth {
       });
     }
 
-    return await this.contractService.estimateGas(transaction, _blockParam, requestDetails);
+    return await this.contractService.estimateGas(transaction, _blockParam, resolvedRequestDetails);
   }
 
   /**
@@ -940,14 +956,22 @@ export class EthImpl implements Eth {
     1: { type: 'blockParams', required: true },
     2: { type: 'stateOverride', required: false },
   })
+  @rpcParamLayoutConfig(RPC_LAYOUT.custom((params) => [params[0], params[1], params[2]]))
   @cache({
     skipParams: [{ index: '1', value: constants.NON_CACHABLE_BLOCK_PARAMS }],
   })
   public async call(
     call: IContractCallRequest,
     blockParam: string | object | null,
-    requestDetails: RequestDetails,
+    stateOverrideOrRequestDetails: Record<string, unknown> | RequestDetails | null | undefined,
+    requestDetails?: RequestDetails,
   ): Promise<string> {
+    const { requestDetails: resolvedRequestDetails, stateOverride } = this.resolveStateOverrideArgs(
+      stateOverrideOrRequestDetails,
+      requestDetails,
+    );
+    this.handleUnsupportedStateOverride(constants.ETH_CALL, stateOverride, resolvedRequestDetails);
+
     const callData = call.data ? call.data : call.input;
     // log request
     this.logger.info(
@@ -961,7 +985,90 @@ export class EthImpl implements Eth {
       method: constants.ETH_CALL,
     });
 
-    return this.contractService.call(call, blockParam, requestDetails);
+    return this.contractService.call(call, blockParam, resolvedRequestDetails);
+  }
+
+  private resolveStateOverrideArgs(
+    stateOverrideOrRequestDetails: Record<string, unknown> | RequestDetails | null | undefined,
+    requestDetails?: RequestDetails,
+  ): {
+    requestDetails: RequestDetails;
+    stateOverride: unknown;
+  } {
+    if (requestDetails === undefined) {
+      return {
+        requestDetails: stateOverrideOrRequestDetails as RequestDetails,
+        stateOverride: undefined,
+      };
+    }
+
+    return {
+      requestDetails,
+      stateOverride: stateOverrideOrRequestDetails as Record<string, unknown> | null | undefined,
+    };
+  }
+
+  private handleUnsupportedStateOverride(method: string, stateOverride: unknown, requestDetails: RequestDetails): void {
+    if (stateOverride == null) {
+      return;
+    }
+
+    if (typeof stateOverride !== 'object' || Array.isArray(stateOverride)) {
+      throw predefined.INVALID_PARAMETER(2, 'Expected StateOverride object');
+    }
+
+    if (this.getUnsupportedStateOverrideBehavior() === 'ignore') {
+      const { overrideAddressCount, overrideFieldKinds } = this.summarizeStateOverride(stateOverride);
+      this.unsupportedStateOverrideCounter.labels(method, 'ignore').inc();
+      this.logger.info(
+        {
+          behavior: 'ignore',
+          method,
+          overrideAddressCount,
+          overrideFieldKinds,
+          requestId: requestDetails.requestId,
+        },
+        'Ignoring unsupported stateOverride payload',
+      );
+      return;
+    }
+
+    throw predefined.INVALID_PARAMETER(2, 'stateOverride is not supported');
+  }
+
+  private getUnsupportedStateOverrideBehavior(): 'ignore' | 'reject' {
+    return ConfigService.get('STATE_OVERRIDE_UNSUPPORTED_BEHAVIOR') === 'ignore' ? 'ignore' : 'reject';
+  }
+
+  private summarizeStateOverride(stateOverride: Record<string, unknown>): {
+    overrideAddressCount: number;
+    overrideFieldKinds: string[];
+  } {
+    const overrideFieldKinds = new Set<string>();
+
+    for (const overrideValue of Object.values(stateOverride)) {
+      if (overrideValue != null && typeof overrideValue === 'object' && !Array.isArray(overrideValue)) {
+        for (const fieldName of Object.keys(overrideValue as Record<string, unknown>)) {
+          overrideFieldKinds.add(fieldName);
+        }
+      }
+    }
+
+    return {
+      overrideAddressCount: Object.keys(stateOverride).length,
+      overrideFieldKinds: Array.from(overrideFieldKinds).sort(),
+    };
+  }
+
+  private initUnsupportedStateOverrideCounter(register: Registry): Counter {
+    const metricName = 'rpc_relay_unsupported_state_override_total';
+    register.removeSingleMetric(metricName);
+    return new Counter({
+      name: metricName,
+      help: 'Unsupported stateOverride payloads handled by the relay',
+      labelNames: ['method', 'behavior'],
+      registers: [register],
+    });
   }
 
   /**

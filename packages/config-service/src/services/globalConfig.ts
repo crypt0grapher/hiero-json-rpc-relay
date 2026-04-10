@@ -188,6 +188,11 @@ const _CONFIG = {
     required: false,
     defaultValue: 200,
   },
+  STATE_OVERRIDE_UNSUPPORTED_BEHAVIOR: {
+    type: 'string',
+    required: false,
+    defaultValue: 'reject',
+  },
   ETH_FEE_HISTORY_FIXED: {
     type: 'boolean',
     required: false,

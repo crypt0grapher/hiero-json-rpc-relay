@@ -152,11 +152,9 @@ export const TYPES = {
   },
   stateOverride: {
     test: (param: any) => {
-      // Must be an object if provided
-      // TODO: This validation should be more detailed when state override is officially supported.
-      return typeof param === 'object' && !Array.isArray(param);
+      return typeof param === 'object' && param !== null && !Array.isArray(param);
     },
-    error: 'Expected StateOverride object (currently accepting any object structure)',
+    error: 'Expected StateOverride object',
   },
 } satisfies {
   [paramTypeName: string]: {

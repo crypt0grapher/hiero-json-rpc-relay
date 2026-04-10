@@ -14,7 +14,7 @@ import { predefined } from '../../../src/lib/errors/JsonRpcError';
 import { EthImpl } from '../../../src/lib/eth';
 import { LocalPendingTransactionStorage, LockService, TransactionPoolService } from '../../../src/lib/services';
 import { IContractCallRequest, IContractCallResponse, RequestDetails } from '../../../src/lib/types';
-import { mockData, overrideEnvsInMochaDescribe } from '../../helpers';
+import { mockData, overrideEnvsInMochaDescribe, withOverriddenEnvsInMochaTest } from '../../helpers';
 import {
   ACCOUNT_ADDRESS_1,
   DEFAULT_NETWORK_FEES,
@@ -120,6 +120,85 @@ describe('@ethEstimateGas Estimate Gas spec', async function () {
       .and.to.eventually.include({
         code: 3,
         message: 'execution reverted: FAIL_INVALID',
+      });
+  });
+
+  it('rejects stateOverride explicitly for eth_estimateGas', async function () {
+    const callData: IContractCallRequest = {
+      from: ACCOUNT_ADDRESS_1,
+      to: RECEIVER_ADDRESS,
+      data: '0x01',
+    };
+
+    await expect(
+      ethImpl.estimateGas(
+        callData,
+        null,
+        {
+          [RECEIVER_ADDRESS]: {
+            code: '0x6000',
+          },
+        },
+        requestDetails,
+      ),
+    )
+      .to.be.rejectedWith(JsonRpcError)
+      .and.eventually.include({
+        code: -32602,
+        message: 'Invalid parameter 2: stateOverride is not supported',
+      });
+  });
+
+  withOverriddenEnvsInMochaTest({ STATE_OVERRIDE_UNSUPPORTED_BEHAVIOR: 'ignore' }, () => {
+    it('ignores well-formed stateOverride for eth_estimateGas and records the ignore metric', async function () {
+      const callData: IContractCallRequest = {
+        from: ACCOUNT_ADDRESS_1,
+        to: RECEIVER_ADDRESS,
+        data: '0x01',
+      };
+
+      await mockContractCall(callData, true, 200, { result: `0x61A80` }, requestDetails);
+
+      const baseline = await ethImplOverridden.estimateGas(callData, null, requestDetails);
+      const withOverride = await ethImplOverridden.estimateGas(
+        callData,
+        null,
+        {
+          [RECEIVER_ADDRESS]: {
+            balance: '0x1',
+            code: '0x6000',
+          },
+        },
+        requestDetails,
+      );
+
+      expect(withOverride).to.equal(baseline);
+      const lastPost = web3Mock.history.post.at(-1);
+      expect(lastPost).to.not.be.undefined;
+      expect(JSON.parse(lastPost!.data)).to.not.have.property('stateOverride');
+
+      const metric = await registry.getSingleMetric('rpc_relay_unsupported_state_override_total');
+      if (!metric) throw new Error('Expected unsupported stateOverride metric to be registered');
+      const metricValues = await metric.get();
+      const ignoredEstimateMetric = metricValues.values.find(
+        (value) => value.labels.method === constants.ETH_ESTIMATE_GAS && value.labels.behavior === 'ignore',
+      );
+      expect(ignoredEstimateMetric?.value).to.equal(1);
+    });
+  });
+
+  it('rejects non-object stateOverride values for eth_estimateGas through parameter validation', async function () {
+    const callData: IContractCallRequest = {
+      from: ACCOUNT_ADDRESS_1,
+      to: RECEIVER_ADDRESS,
+      data: '0x01',
+    };
+
+    await expect(ethImpl.estimateGas(callData, null, 'not-an-object' as any, requestDetails))
+      .to.be.rejectedWith(JsonRpcError)
+      .and.eventually.include({
+        code: -32602,
+        message: 'Invalid parameter 2: Expected StateOverride object',
       });
   });
 
@@ -666,7 +745,7 @@ describe('@ethEstimateGas Estimate Gas spec', async function () {
   describe('eth_estimateGas lazy-create gas floor', function () {
     const NON_EXISTENT_ADDRESS = '0xdead000000000000000000000000000000000001';
     const LOW_GAS_ESTIMATE = numberTo0x(47_802); // Typical mirror-web3 estimate for simple transfer
-    const HIGH_GAS_ESTIMATE = numberTo0x(600_000); // Above the hollow account creation threshold
+    const HIGH_GAS_ESTIMATE = numberTo0x(900_000); // Above the hollow account creation threshold
 
     it('should return MIN_TX_HOLLOW_ACCOUNT_CREATION_GAS when estimate is below floor and destination does not exist', async function () {
       const callData: IContractCallRequest = {
@@ -707,7 +786,7 @@ describe('@ethEstimateGas Estimate Gas spec', async function () {
       // with onNoMatch: 'throwException' will fail the test.
 
       const gas = await ethImpl.estimateGas(callData, null, requestDetails);
-      expect(Number(gas)).to.equal(600_000);
+      expect(Number(gas)).to.equal(900_000);
     });
 
     it('should return original estimate for contract call (no value)', async function () {
