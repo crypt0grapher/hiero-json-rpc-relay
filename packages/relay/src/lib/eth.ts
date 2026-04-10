@@ -1017,8 +1017,10 @@ export class EthImpl implements Eth {
       throw predefined.INVALID_PARAMETER(2, 'Expected StateOverride object');
     }
 
+    const normalizedStateOverride = stateOverride as Record<string, unknown>;
+
     if (this.getUnsupportedStateOverrideBehavior() === 'ignore') {
-      const { overrideAddressCount, overrideFieldKinds } = this.summarizeStateOverride(stateOverride);
+      const { overrideAddressCount, overrideFieldKinds } = this.summarizeStateOverride(normalizedStateOverride);
       this.unsupportedStateOverrideCounter.labels(method, 'ignore').inc();
       this.logger.info(
         {
