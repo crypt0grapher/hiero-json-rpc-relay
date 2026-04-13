@@ -25,6 +25,24 @@
   - `cd ~/goliath/json-rpc-relay && npm run build`
 - Note: a broader grep run of `npm run test -- -g 'eth_getTransactionCount|WRONG_NONCE'` also matched unrelated `eth_getBlockByNumber` fixture coverage and failed on missing contract-results mocks outside this relay nonce path.
 
+## Execution Update 2026-04-09 18:35-18:56 UTC
+
+- Published branch commit `3edf0c40` through GitHub Actions run `24207749360`.
+- Candidate image:
+  - `ghcr.io/crypt0grapher/hiero-json-rpc-relay/json-rpc-relay:3edf0c4@sha256:226b6010eec3fe67b23c31ed15407a309450096a4384a3dc218b65af053f16cb`
+- Rollback/live image kept:
+  - `ghcr.io/crypt0grapher/hiero-json-rpc-relay/json-rpc-relay:d62b985@sha256:bb4c6b11347bd3a26817893577e3bc0fffe1cb2d3aa2f46b6660b651167f1a56`
+- FRA `relay-http` canary was limited to a single pod.
+  - candidate pod startup logged `ETH_GET_TRANSACTION_COUNT_CONSENSUS_TIMEOUT_MS = 1000`
+  - direct HAPI from inside the canary pod returned `0.0.2061.ethereumNonce=321`
+  - direct canary RPC returned `latest=0x141` and `pending=0x141` in roughly `41-46ms`
+  - logs showed no fallback warnings for the targeted requests
+- Outcome: `hold/rollback`.
+  - the bounded-timeout redesign stayed inside the latency budget
+  - the previously affected live sender had already self-healed by canary time, so the canary did not demonstrate a live correctness win
+  - FRA `relay-http` was rolled back to `d62b985`, and rollout strategy returned to `maxUnavailable=25%`, `maxSurge=25%`
+  - no WS/internal relay deployment or non-FRA rollout was changed
+
 ---
 
 ## 1) GOAL / SUCCESS CRITERIA
@@ -38,7 +56,7 @@ Relay can return the consensus-correct nonce for affected EOAs without reproduci
 - [x] `eth_getTransactionCount(latest)` and `pending` can use the same consensus snapshot for affected EOAs
 - [x] Stateful precheck reuses the same source so send and query paths stop disagreeing
 - [x] Cache miss behavior is bounded and observable instead of waiting through the old long path
-- [ ] FRA canary proves a correctness win or produces a crisp rollback decision
+- [x] FRA canary proves a correctness win or produces a crisp rollback decision
 
 **Acceptance criteria (TDD)**
 
@@ -46,7 +64,7 @@ Relay can return the consensus-correct nonce for affected EOAs without reproduci
 - [x] Test B: `pending` returns `consensusNonce + txPoolPendingCount` from the same snapshot
 - [x] Test C: timeout/fallback behavior is covered and does not wait through the old `~10s` path
 - [x] Test D: build and targeted tests pass
-- [ ] Test E: FRA canary no longer shows the earlier `~10s` cache-miss spikes
+- [x] Test E: FRA canary no longer shows the earlier `~10s` cache-miss spikes
 
 **Non-goals**
 
