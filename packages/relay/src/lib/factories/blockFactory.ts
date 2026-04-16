@@ -19,7 +19,6 @@ interface BlockFactoryParams {
   blockResponse: MirrorNodeBlock;
   txArray: any[];
   receiptsRoot: string;
-  gasPrice: string;
 }
 
 export class BlockFactory {
@@ -31,7 +30,7 @@ export class BlockFactory {
     const timestamp = timestampRange.from.substring(0, timestampRange.from.indexOf('.'));
 
     return new Block({
-      baseFeePerGas: params.gasPrice, // chain gas price: Goliath has no EIP-1559 base fee, the entire gas price IS the base fee
+      baseFeePerGas: constants.ZERO_HEX,
       difficulty: constants.ZERO_HEX,
       extraData: constants.EMPTY_HEX,
       gasLimit: numberTo0x(constants.BLOCK_GAS_LIMIT),

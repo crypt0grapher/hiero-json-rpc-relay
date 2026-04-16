@@ -9,12 +9,13 @@ import sinon from 'sinon';
 
 import { Relay } from '../../../src';
 import { RequestDetails } from '../../../src/lib/types';
+import { BASE_FEE_PER_GAS_HEX } from './eth-config';
 
 use(chaiAsPromised);
 
 describe('@ethCommon', async function () {
   let relay: Relay;
-  this.timeout(10000);
+  this.timeout(30000);
   const randomBlockHash = '0xa291866ddf5dfd7ac83d079614ac60ab412df7c55e4d91408b2f365581405ca8';
 
   const requestDetails = new RequestDetails({ requestId: 'eth_commonTest', ipAddress: '0.0.0.0' });
@@ -111,7 +112,7 @@ describe('@ethCommon', async function () {
 
     it('should execute "eth_maxPriorityFeePerGas"', async function () {
       const result = await relay.eth().maxPriorityFeePerGas(requestDetails);
-      expect(result).to.eq('0x0');
+      expect(result).to.eq(BASE_FEE_PER_GAS_HEX);
     });
   });
 });

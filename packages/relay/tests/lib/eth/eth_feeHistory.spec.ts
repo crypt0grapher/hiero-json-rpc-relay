@@ -66,21 +66,21 @@ describe('@ethFeeHistory using MirrorNode', async function () {
     });
 
     it('eth_feeHistory', async function () {
-      // baseFeePerGas is now the chain gas price (single value from gasPrice()),
-      // not per-block timestamp-based fees. All entries equal BASE_FEE_PER_GAS_HEX.
+      // baseFeePerGas is always zero on Hedera/Goliath (HIP-415).
+      // The effective gas price is exposed through reward/maxPriorityFeePerGas instead.
       const feeHistory = await ethImpl.feeHistory(2, 'latest', [25, 75], requestDetails);
 
       expect(feeHistory).to.exist;
       expect(feeHistory['baseFeePerGas'].length).to.equal(3);
       expect(feeHistory['gasUsedRatio'].length).to.equal(2);
-      expect(feeHistory['baseFeePerGas'][0]).to.equal(BASE_FEE_PER_GAS_HEX);
-      expect(feeHistory['baseFeePerGas'][1]).to.equal(BASE_FEE_PER_GAS_HEX);
-      expect(feeHistory['baseFeePerGas'][2]).to.equal(BASE_FEE_PER_GAS_HEX);
+      expect(feeHistory['baseFeePerGas'][0]).to.equal(constants.ZERO_HEX);
+      expect(feeHistory['baseFeePerGas'][1]).to.equal(constants.ZERO_HEX);
+      expect(feeHistory['baseFeePerGas'][2]).to.equal(constants.ZERO_HEX);
       expect(feeHistory['gasUsedRatio'][0]).to.equal(GAS_USED_RATIO);
       expect(feeHistory['oldestBlock']).to.equal(`0x${previousBlock.number.toString(16)}`);
       const rewards = feeHistory['reward'][0];
-      expect(rewards[0]).to.equal('0x0');
-      expect(rewards[1]).to.equal('0x0');
+      expect(rewards[0]).to.equal(BASE_FEE_PER_GAS_HEX);
+      expect(rewards[1]).to.equal(BASE_FEE_PER_GAS_HEX);
     });
 
     it('eth_feeHistory with latest param', async function () {
@@ -157,7 +157,7 @@ describe('@ethFeeHistory using MirrorNode', async function () {
     const secondFeeHistory = await ethImpl.feeHistory(1, hexBlockNumber, null, requestDetails);
 
     expect(firstFeeHistory).to.exist;
-    expect(firstFeeHistory['baseFeePerGas'][0]).to.equal(BASE_FEE_PER_GAS_HEX);
+    expect(firstFeeHistory['baseFeePerGas'][0]).to.equal(constants.ZERO_HEX);
     expect(firstFeeHistory['gasUsedRatio'][0]).to.equal(GAS_USED_RATIO);
     expect(firstFeeHistory['oldestBlock']).to.equal(hexBlockNumber);
 
@@ -167,11 +167,11 @@ describe('@ethFeeHistory using MirrorNode', async function () {
   describe('eth_feeHistory -> Mirror node returns error for timestamp-specific fees', function () {
     const latestBlock = { ...DEFAULT_BLOCK, number: BLOCK_NUMBER_3 };
 
-    // baseFeePerGas is now the chain gas price from gasPrice() which uses `network/fees`
-    // (no timestamp). Timestamp-specific fee 404s no longer affect feeHistory.
+    // baseFeePerGas is always zero on Hedera/Goliath. Timestamp-specific fee lookups only
+    // affect reward/maxPriorityFee-derived values, not the base fee itself.
     function feeHistoryOnSuccessExpect(feeHistory: any) {
       expect(feeHistory).to.exist;
-      expect(feeHistory['baseFeePerGas'][0]).to.equal(BASE_FEE_PER_GAS_HEX);
+      expect(feeHistory['baseFeePerGas'][0]).to.equal(constants.ZERO_HEX);
       expect(feeHistory['gasUsedRatio'][0]).to.equal(GAS_USED_RATIO);
       expect(feeHistory['oldestBlock']).to.equal(`0x${latestBlock.number.toString(16)}`);
     }
@@ -189,8 +189,8 @@ describe('@ethFeeHistory using MirrorNode', async function () {
       const feeHistory = await ethImpl.feeHistory(1, 'latest', [25, 75], requestDetails);
       feeHistoryOnSuccessExpect(feeHistory);
       const rewards = feeHistory['reward'][0];
-      expect(rewards[0]).to.equal('0x0');
-      expect(rewards[1]).to.equal('0x0');
+      expect(rewards[0]).to.equal(BASE_FEE_PER_GAS_HEX);
+      expect(rewards[1]).to.equal(BASE_FEE_PER_GAS_HEX);
     });
 
     it('eth_feeHistory on mirror 500', async function () {
@@ -202,9 +202,9 @@ describe('@ethFeeHistory using MirrorNode', async function () {
   describe('eth_feeHistory using fixed fees', function () {
     function checkCommonFeeHistoryFields(feeHistory: any) {
       expect(feeHistory).to.exist;
-      expect(feeHistory['baseFeePerGas'][0]).to.eq(BASE_FEE_PER_GAS_HEX);
-      expect(feeHistory['baseFeePerGas'][1]).to.eq(BASE_FEE_PER_GAS_HEX);
-      expect(feeHistory['baseFeePerGas'][2]).to.eq(BASE_FEE_PER_GAS_HEX);
+      expect(feeHistory['baseFeePerGas'][0]).to.eq(constants.ZERO_HEX);
+      expect(feeHistory['baseFeePerGas'][1]).to.eq(constants.ZERO_HEX);
+      expect(feeHistory['baseFeePerGas'][2]).to.eq(constants.ZERO_HEX);
     }
 
     function defineLatestBlockRestMock(latestBlockNumber: number) {
@@ -276,7 +276,7 @@ describe('@ethFeeHistory using MirrorNode', async function () {
       expect(feeHistory).to.exist;
       expect(feeHistory['oldestBlock']).to.eq(numberTo0x(latestBlockNumber - countBlocks + 1));
       expect(feeHistory['baseFeePerGas'].length).to.eq(countBlocks + 1);
-      expect(feeHistory['baseFeePerGas'][0]).to.eq(BASE_FEE_PER_GAS_HEX);
+      expect(feeHistory['baseFeePerGas'][0]).to.eq(constants.ZERO_HEX);
     });
 
     it('eth_feeHistory with earliest param', async function () {
@@ -290,7 +290,7 @@ describe('@ethFeeHistory using MirrorNode', async function () {
       expect(feeHistory).to.exist;
       expect(feeHistory['oldestBlock']).to.eq(numberTo0x(1));
       expect(feeHistory['baseFeePerGas'].length).to.eq(2);
-      expect(feeHistory['baseFeePerGas'][0]).to.eq(BASE_FEE_PER_GAS_HEX);
+      expect(feeHistory['baseFeePerGas'][0]).to.eq(constants.ZERO_HEX);
     });
 
     it('eth_feeHistory with fixed fees using cache', async function () {

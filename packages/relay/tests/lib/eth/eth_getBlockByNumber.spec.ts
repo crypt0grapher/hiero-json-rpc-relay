@@ -684,7 +684,7 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
     });
 
     it('eth_getBlockByNumber succeeds for non-genesis block with network fees available', async function () {
-      // baseFeePerGas is now the chain gas price from gasPrice(), which requires network/fees.
+      // baseFeePerGas is always zero on Hedera/Goliath (HIP-415).
       const NON_GENESIS_BLOCK_NUM = 5;
       const NON_GENESIS_TS_FROM = '1651560500.000000000';
       const NON_GENESIS_TS_TO = '1651560501.000000000';
@@ -708,13 +708,11 @@ describe('@ethGetBlockByNumber using MirrorNode', async function () {
       restMock.onGet(BLOCKS_LIMIT_ORDER_URL).reply(200, JSON.stringify(MOST_RECENT_BLOCK));
       restMock.onGet(NON_GENESIS_CR_URL).reply(200, JSON.stringify({ results: [] }));
       restMock.onGet(NON_GENESIS_LOGS_URL).reply(200, JSON.stringify({ logs: [] }));
-      restMock.onGet('network/fees').reply(200, JSON.stringify(DEFAULT_NETWORK_FEES));
-
       const result = await ethImpl.getBlockByNumber(numberTo0x(NON_GENESIS_BLOCK_NUM), false, requestDetails);
       expect(result).to.exist;
       expect(result).to.not.be.null;
       expect(result!.number).to.equal(numberTo0x(NON_GENESIS_BLOCK_NUM));
-      expect(result!.baseFeePerGas).to.equal(BASE_FEE_PER_GAS_HEX);
+      expect(result!.baseFeePerGas).to.equal(constants.ZERO_HEX);
     });
   });
 });

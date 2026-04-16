@@ -118,15 +118,16 @@ export class FeeService implements IFeeService {
   /**
    * Returns a fee per gas that is an estimate of how much you can pay as a priority fee, or tip.
    *
-   * Goliath has no EIP-1559 priority fee / tipping mechanism. The entire gas price is represented
-   * as baseFeePerGas. Returning 0 means "no tip above the base fee". Wallets compute
-   * maxFeePerGas = baseFee*2 + maxPriorityFeePerGas = gasPrice*2 + 0 = 2x cap (standard EIP-1559).
+   * Ethereum clients usually use value derived from the 50th percentile effective priority fee
+   * of the latest block using `eth_feeHistory` as a fallback for this value. But in our case it would
+   * always be the same as the gasPrice, so we can just return it right away, avoiding expensive operations
+   * (we are not burning anything, so all the fees are priority fees and effectively should be the same as the gasPrice).
    *
-   * @param _requestDetails
-   * @return Promise<string> - Always 0x0 (no priority fee on Goliath).
+   * @param requestDetails
+   * @return Promise<string> - The priority fee per gas in wei (in our case, gas price).
    */
-  public async maxPriorityFeePerGas(_requestDetails: RequestDetails): Promise<string> {
-    return constants.ZERO_HEX;
+  public async maxPriorityFeePerGas(requestDetails: RequestDetails): Promise<string> {
+    return await this.common.gasPrice(requestDetails);
   }
 
   /**
@@ -147,13 +148,13 @@ export class FeeService implements IFeeService {
     const feeHistory: IFeeHistory = {
       // This includes the next block after the newest of the returned range, because this value can be derived
       // from the newest block (this is where this plus one comes from). Only zeroes are returned in our case.
-      baseFeePerGas: Array(blockCount + 1).fill(fee), // chain gas price: the entire gas price IS the base fee (no tipping)
+      baseFeePerGas: Array(blockCount + 1).fill(constants.ZERO_HEX),
       gasUsedRatio: Array(blockCount).fill(constants.DEFAULT_GAS_USED_RATIO),
       oldestBlock: numberTo0x(oldestBlockNumber),
     };
 
     if (shouldIncludeRewards) {
-      feeHistory['reward'] = Array(blockCount).fill(Array(rewardPercentiles.length).fill(constants.ZERO_HEX));
+      feeHistory['reward'] = Array(blockCount).fill(Array(rewardPercentiles.length).fill(fee));
     }
 
     return feeHistory;
@@ -185,7 +186,7 @@ export class FeeService implements IFeeService {
 
     // get fees from oldest to newest blocks
     for (let blockNumber = oldestBlockNumber; blockNumber <= newestBlockNumber; blockNumber++) {
-      feeHistory.baseFeePerGas?.push(fee); // chain gas price as base fee
+      feeHistory.baseFeePerGas?.push(constants.ZERO_HEX);
       feeHistory.gasUsedRatio?.push(constants.DEFAULT_GAS_USED_RATIO);
     }
 
@@ -195,7 +196,7 @@ export class FeeService implements IFeeService {
 
     if (latestBlockNumber > newestBlockNumber) {
       // get next block fee if the newest block is not the latest
-      nextBaseFeePerGas = fee; // chain gas price as base fee
+      nextBaseFeePerGas = constants.ZERO_HEX;
     }
 
     if (nextBaseFeePerGas) {
@@ -203,7 +204,7 @@ export class FeeService implements IFeeService {
     }
 
     if (shouldIncludeRewards) {
-      feeHistory['reward'] = Array(blockCount).fill(Array(rewardPercentiles.length).fill(constants.ZERO_HEX));
+      feeHistory['reward'] = Array(blockCount).fill(Array(rewardPercentiles.length).fill(fee));
     }
 
     return feeHistory;

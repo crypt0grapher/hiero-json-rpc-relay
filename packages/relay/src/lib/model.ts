@@ -29,13 +29,11 @@ export class Block {
   public readonly gasLimit: string = '0xe4e1c0';
 
   /**
-   * Base fee per gas (EIP-1559)
-   * Goliath has no EIP-1559 style floating block capacity fees (HIP-415).
-   * The entire gas price IS the base fee — there is no tip/priority fee system.
-   * Set to the chain's gas price by BlockFactory.createBlock().
-   * Default '0x1' is a safe fallback (must be > 0: ethers.js treats 0n as falsy).
+   * Base fee per gas (EIP-1559).
+   * Always zero because Hedera/Goliath does not implement EIP-1559 base fee burning
+   * or floating block-capacity fees, per HIP-415.
    */
-  public readonly baseFeePerGas: string = '0x1';
+  public readonly baseFeePerGas: string = '0x0';
 
   /** Total gas used in block (hex string) */
   public readonly gasUsed: string = '0x0';

@@ -82,7 +82,6 @@ describe('BlockFactory', () => {
       const block = await BlockFactory.createBlock({
         blockResponse,
         txArray: blockInfo.transactions,
-        gasPrice: blockInfo.baseFeePerGas,
         receiptsRoot: blockInfo.receiptsRoot,
       });
 
@@ -90,7 +89,7 @@ describe('BlockFactory', () => {
       expect(block.parentHash).to.equal(blockInfo.parentHash);
       expect(block.number).to.equal(numberTo0x(parseInt(blockInfo.number, 16)));
       expect(block.gasUsed).to.equal(numberTo0x(parseInt(blockInfo.gasUsed, 16)));
-      expect(block.baseFeePerGas).to.equal(blockInfo.baseFeePerGas);
+      expect(block.baseFeePerGas).to.equal(constants.ZERO_HEX);
       expect(block.transactions).to.deep.equal(blockInfo.transactions);
       expect(block.timestamp).to.equal(blockInfo.timestamp);
       expect(block.logsBloom).to.equal(blockInfo.logsBloom);
@@ -101,7 +100,6 @@ describe('BlockFactory', () => {
       const block = await BlockFactory.createBlock({
         blockResponse,
         txArray: [],
-        gasPrice: blockInfo.baseFeePerGas,
         receiptsRoot: blockInfo.receiptsRoot,
       });
 
@@ -197,7 +195,6 @@ describe('BlockFactory', () => {
       block = await BlockFactory.createBlock({
         blockResponse,
         txArray: blockInfo.transactions,
-        gasPrice: blockInfo.baseFeePerGas,
         receiptsRoot: blockInfo.receiptsRoot,
       });
     });
@@ -223,7 +220,7 @@ describe('BlockFactory', () => {
       expect(hexToData(decoded[12])).to.equal(blockInfo.extraData);
       expect(hexToData(decoded[13])).to.equal(blockInfo.mixHash);
       expect(hexToData(decoded[14])).to.equal(blockInfo.nonce);
-      expect(hexToData(decoded[15])).to.equal(blockInfo.baseFeePerGas);
+      expect(hexToQuantity(decoded[15])).to.equal(constants.ZERO_HEX);
       expect(hexToData(decoded[16])).to.equal(blockInfo.withdrawalsRoot);
     });
 
