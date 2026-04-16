@@ -2,7 +2,7 @@
 
 import { JsonRpcError } from '../../../errors/JsonRpcError';
 import { Transaction } from '../../../model';
-import { ITransactionReceipt, RequestDetails } from '../../../types';
+import { ITransactionReceipt, IUserOperationReceipt, RequestDetails } from '../../../types';
 
 export interface ITransactionService {
   getTransactionByBlockHashAndIndex(
@@ -20,6 +20,8 @@ export interface ITransactionService {
   getTransactionByHash(hash: string, requestDetails: RequestDetails): Promise<Transaction | null>;
 
   getTransactionReceipt(hash: string, requestDetails: RequestDetails): Promise<ITransactionReceipt | null>;
+
+  getUserOperationReceipt(userOpHash: string, requestDetails: RequestDetails): Promise<IUserOperationReceipt | null>;
 
   sendRawTransaction(transaction: string, requestDetails: RequestDetails): Promise<string | JsonRpcError>;
 }

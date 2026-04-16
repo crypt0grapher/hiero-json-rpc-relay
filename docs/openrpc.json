@@ -616,6 +616,25 @@
       }
     },
     {
+      "name": "eth_getUserOperationReceipt",
+      "summary": "Returns the receipt wrapper for a user operation by user operation hash.",
+      "description": "![](https://raw.githubusercontent.com/hiero-ledger/hiero-json-rpc-relay/main/docs/images/http_label.png) ![](https://raw.githubusercontent.com/hiero-ledger/hiero-json-rpc-relay/main/docs/images/ws_label.png)",
+      "params": [
+        {
+          "name": "User operation hash",
+          "schema": {
+            "$ref": "#/components/schemas/hash32"
+          }
+        }
+      ],
+      "result": {
+        "name": "User operation receipt",
+        "schema": {
+          "$ref": "#/components/schemas/UserOperationReceiptInfo"
+        }
+      }
+    },
+    {
       "name": "eth_getUncleByBlockHashAndIndex",
       "summary": "Returns information about a uncle of a block by hash and uncle index position.",
       "description": "![](https://raw.githubusercontent.com/hiero-ledger/hiero-json-rpc-relay/main/docs/images/http_label.png)",
@@ -2486,6 +2505,73 @@
             "title": "effective gas price",
             "description": "The actual value per gas deducted from the sender's account. Before EIP-1559, this is equal to the transaction's gas price. After, it is equal to baseFeePerGas + min(maxFeePerGas - baseFeePerGas, maxPriorityFeePerGas).",
             "$ref": "#/components/schemas/uint"
+          }
+        }
+      },
+      "UserOperationReceiptInfo": {
+        "type": "object",
+        "title": "User operation receipt information",
+        "required": [
+          "actualGasCost",
+          "actualGasUsed",
+          "entryPoint",
+          "logs",
+          "nonce",
+          "paymaster",
+          "receipt",
+          "sender",
+          "success",
+          "userOpHash"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "receipt": {
+            "title": "receipt",
+            "$ref": "#/components/schemas/ReceiptInfo"
+          },
+          "logs": {
+            "title": "logs",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Log"
+            }
+          },
+          "userOpHash": {
+            "title": "user operation hash",
+            "$ref": "#/components/schemas/hash32"
+          },
+          "entryPoint": {
+            "title": "entry point",
+            "$ref": "#/components/schemas/address"
+          },
+          "sender": {
+            "title": "sender",
+            "$ref": "#/components/schemas/address"
+          },
+          "nonce": {
+            "title": "nonce",
+            "$ref": "#/components/schemas/uint"
+          },
+          "paymaster": {
+            "title": "paymaster",
+            "$ref": "#/components/schemas/address"
+          },
+          "actualGasUsed": {
+            "title": "actual gas used",
+            "$ref": "#/components/schemas/uint"
+          },
+          "actualGasCost": {
+            "title": "actual gas cost",
+            "$ref": "#/components/schemas/uint"
+          },
+          "success": {
+            "title": "success",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "reason",
+            "description": "Revert reason bytes when the user operation execution reverts.",
+            "$ref": "#/components/schemas/bytes"
           }
         }
       },

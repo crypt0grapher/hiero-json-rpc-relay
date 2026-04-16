@@ -99,6 +99,9 @@ export function getMethodConfiguration(): MethodRateLimitConfiguration {
     eth_getTransactionReceipt: {
       total: tier2rateLimit,
     },
+    eth_getUserOperationReceipt: {
+      total: tier2rateLimit,
+    },
     eth_getUncleByBlockHashAndIndex: {
       total: tier2rateLimit,
     },

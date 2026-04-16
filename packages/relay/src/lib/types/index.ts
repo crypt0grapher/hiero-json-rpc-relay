@@ -5,6 +5,7 @@ export * from './IFeeHistory';
 export * from './ITracerConfig';
 export * from './ITracerConfigWrapper';
 export * from './ITransactionReceipt';
+export * from './IUserOperationReceipt';
 export * from './metrics';
 export * from './mirrorNode';
 export * from './RequestDetails';

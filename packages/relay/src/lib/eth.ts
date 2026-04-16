@@ -37,6 +37,7 @@ import {
   IGetLogsParams,
   INewFilterParams,
   ITransactionReceipt,
+  IUserOperationReceipt,
   RequestDetails,
   TypedEvents,
 } from './types';
@@ -1108,6 +1109,27 @@ export class EthImpl implements Eth {
   @cache()
   async getTransactionReceipt(hash: string, requestDetails: RequestDetails): Promise<any> {
     return await this.transactionService.getTransactionReceipt(hash, requestDetails);
+  }
+
+  /**
+   * Gets a receipt for a user operation that has already executed.
+   *
+   * @rpcMethod Exposed as eth_getUserOperationReceipt RPC endpoint
+   * @rpcParamValidationRules Applies JSON-RPC parameter validation according to the API specification
+   *
+   * @param {string} userOpHash - The user operation hash.
+   * @param {RequestDetails} requestDetails - The details of the request for logging and tracking purposes.
+   */
+  @rpcMethod
+  @rpcParamValidationRules({
+    0: { type: 'transactionHash', required: true },
+  })
+  @cache()
+  async getUserOperationReceipt(
+    userOpHash: string,
+    requestDetails: RequestDetails,
+  ): Promise<IUserOperationReceipt | null> {
+    return await this.transactionService.getUserOperationReceipt(userOpHash, requestDetails);
   }
 
   /**

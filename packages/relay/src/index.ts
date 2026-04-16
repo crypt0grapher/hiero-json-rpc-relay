@@ -10,6 +10,7 @@ import {
   IGetLogsParams,
   INewFilterParams,
   ITransactionReceipt,
+  IUserOperationReceipt,
   RequestDetails,
   TransactionTracerConfig,
 } from './lib/types';
@@ -141,6 +142,8 @@ export interface Eth {
   ): Promise<string | JsonRpcError>;
 
   getTransactionReceipt(hash: string, requestDetails: RequestDetails): Promise<Receipt | null>;
+
+  getUserOperationReceipt(userOpHash: string, requestDetails: RequestDetails): Promise<IUserOperationReceipt | null>;
 
   getUncleByBlockHashAndIndex(blockHash: string, index: string): null;
 

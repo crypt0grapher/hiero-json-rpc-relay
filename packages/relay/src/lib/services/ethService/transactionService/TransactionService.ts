@@ -23,6 +23,7 @@ import { Precheck } from '../../../precheck';
 import {
   IContractResultsParams,
   ITransactionReceipt,
+  IUserOperationReceipt,
   LockAcquisitionResult,
   RequestDetails,
   TypedEvents,
@@ -35,6 +36,19 @@ import { ITransactionService } from './ITransactionService';
 type NonceStateSnapshot = Awaited<ReturnType<Precheck['validateAccountAndNetworkStateful']>>;
 
 export class TransactionService implements ITransactionService {
+  private static readonly ENTRY_POINT_INTERFACE = new ethers.Interface([
+    'event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)',
+    'event UserOperationRevertReason(bytes32 indexed userOpHash, address indexed sender, uint256 nonce, bytes revertReason)',
+  ]);
+
+  private static readonly USER_OPERATION_EVENT_TOPIC = ethers.id(
+    'UserOperationEvent(bytes32,address,address,uint256,bool,uint256,uint256)',
+  );
+
+  private static readonly USER_OPERATION_REVERT_REASON_TOPIC = ethers.id(
+    'UserOperationRevertReason(bytes32,address,uint256,bytes)',
+  );
+
   /**
    * The cache service used for caching responses.
    * @private
@@ -354,6 +368,75 @@ export class TransactionService implements ITransactionService {
       this.logger.trace(`receipt for %s found in block %s`, hash, receipt.blockNumber);
 
       return receipt;
+    }
+  }
+
+  /**
+   * Gets a user operation receipt by user operation hash.
+   * @param userOpHash The ERC-4337 user operation hash
+   * @param requestDetails The request details for logging and tracking
+   * @returns {Promise<IUserOperationReceipt | null>} A promise that resolves to a user operation receipt or null if not found
+   */
+  async getUserOperationReceipt(
+    userOpHash: string,
+    requestDetails: RequestDetails,
+  ): Promise<IUserOperationReceipt | null> {
+    try {
+      const normalizedUserOpHash = userOpHash.toLowerCase();
+      const matchingLogs = await this.mirrorNodeClient.getContractResultsLogsWithRetry(
+        requestDetails,
+        1,
+        {
+          topic0: TransactionService.USER_OPERATION_EVENT_TOPIC,
+          topic1: normalizedUserOpHash,
+        },
+        { limit: 1, order: constants.ORDER.ASC },
+      );
+
+      if (!matchingLogs.length) {
+        this.logger.trace(`no user operation receipt for %s`, userOpHash);
+        return null;
+      }
+
+      const matchingLog = matchingLogs[0];
+      const parsedUserOperationLog = TransactionService.ENTRY_POINT_INTERFACE.parseLog({
+        topics: matchingLog.topics,
+        data: matchingLog.data,
+      });
+
+      if (!parsedUserOperationLog || parsedUserOperationLog.name !== 'UserOperationEvent') {
+        this.logger.warn(
+          {
+            topics: matchingLog.topics,
+            transactionHash: matchingLog.transaction_hash,
+          },
+          'Unable to decode UserOperationEvent log for userOpHash=%s',
+          userOpHash,
+        );
+        return null;
+      }
+
+      const receipt = await this.getTransactionReceipt(toHash32(matchingLog.transaction_hash), requestDetails);
+      if (!receipt) {
+        this.logger.trace(`no transaction receipt found for user operation %s`, userOpHash);
+        return null;
+      }
+
+      return {
+        actualGasCost: numberTo0x(parsedUserOperationLog.args.actualGasCost),
+        actualGasUsed: numberTo0x(parsedUserOperationLog.args.actualGasUsed),
+        entryPoint: ethers.getAddress(matchingLog.address),
+        logs: receipt.logs,
+        nonce: numberTo0x(parsedUserOperationLog.args.nonce),
+        paymaster: ethers.getAddress(parsedUserOperationLog.args.paymaster),
+        receipt,
+        reason: this.getUserOperationRevertReason(receipt.logs, normalizedUserOpHash),
+        sender: ethers.getAddress(parsedUserOperationLog.args.sender),
+        success: parsedUserOperationLog.args.success,
+        userOpHash: normalizedUserOpHash,
+      };
+    } catch (error) {
+      throw this.common.genericErrorHandler(error, `Failed to retrieve user operation receipt for ${userOpHash}`);
     }
   }
 
@@ -764,6 +847,34 @@ export class TransactionService implements ITransactionService {
     this.logger.debug(`receipt fallback: constructed minimal receipt for %s in block %s`, hash, cachedBlockNumber);
 
     return receipt;
+  }
+
+  private getUserOperationRevertReason(logs: Log[], userOpHash: string): string | undefined {
+    const revertReasonLog = logs.find(
+      (log) =>
+        log.topics[0]?.toLowerCase() === TransactionService.USER_OPERATION_REVERT_REASON_TOPIC &&
+        log.topics[1]?.toLowerCase() === userOpHash,
+    );
+
+    if (!revertReasonLog) {
+      return undefined;
+    }
+
+    try {
+      const parsedLog = TransactionService.ENTRY_POINT_INTERFACE.parseLog({
+        topics: revertReasonLog.topics,
+        data: revertReasonLog.data,
+      });
+
+      if (!parsedLog || parsedLog.name !== 'UserOperationRevertReason') {
+        return undefined;
+      }
+
+      return parsedLog.args.revertReason;
+    } catch (error: any) {
+      this.logger.debug(error, 'Failed to decode UserOperationRevertReason log');
+      return undefined;
+    }
   }
 
   /**
