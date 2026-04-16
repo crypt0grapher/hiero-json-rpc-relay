@@ -14,6 +14,7 @@ describe('@ethGetUserOperationReceipt eth_getUserOperationReceipt tests', async 
 
   const { restMock, ethImpl, cacheService } = generateEthTestEnv();
   const requestDetails = new RequestDetails({ requestId: 'eth_getUserOperationReceiptTest', ipAddress: '0.0.0.0' });
+  const latestBlockUrl = 'blocks?limit=1&order=desc';
 
   const entryPoint = ethers.getAddress('0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789');
   const sender = ethers.getAddress('0x6d495cf76114c707fe8b14745e20c8caea534469');
@@ -21,6 +22,7 @@ describe('@ethGetUserOperationReceipt eth_getUserOperationReceipt tests', async 
   const userOpHash = '0x0f65f168dd7c90ee91d8c350c9ba2a265b666119bf80b12eccc54a0f3ff73c48';
   const txHash = '0xaa71f6bb57b565d341d730e547b3fa6496be91131011468334c80f529b1578bf';
   const blockHash = `0x${'11'.repeat(32)}`;
+  const latestTimestamp = '1776353569.523776806';
   const emptyBloom = constants.EMPTY_BLOOM;
 
   const entryPointInterface = new ethers.Interface([
@@ -40,7 +42,7 @@ describe('@ethGetUserOperationReceipt eth_getUserOperationReceipt tests', async 
     function_parameters: '0x',
     gas_limit: 1000000,
     gas_used: 123,
-    timestamp: '1776353569.523776806',
+    timestamp: latestTimestamp,
     to: entryPoint,
     block_hash: blockHash,
     block_number: 2593926,
@@ -62,7 +64,55 @@ describe('@ethGetUserOperationReceipt eth_getUserOperationReceipt tests', async 
     nonce: 1,
   });
 
+  const timestampToNanos = (timestamp: string): bigint => {
+    const [secondsStr, nanosStr = '0'] = timestamp.split('.');
+    return BigInt(secondsStr) * constants.NANOS_PER_SECOND + BigInt(nanosStr.padEnd(9, '0'));
+  };
+
+  const nanosToTimestamp = (nanos: bigint): string => {
+    const seconds = nanos / constants.NANOS_PER_SECOND;
+    const remainingNanos = nanos % constants.NANOS_PER_SECOND;
+    return `${seconds}.${remainingNanos.toString().padStart(9, '0')}`;
+  };
+
+  const buildUserOperationLookupUrl = (lookbackWindowSeconds: number): string => {
+    const latestTimestampNanos = timestampToNanos(latestTimestamp);
+    const fromTimestamp = nanosToTimestamp(
+      latestTimestampNanos - BigInt(lookbackWindowSeconds) * constants.NANOS_PER_SECOND,
+    );
+
+    return (
+      `contracts/results/logs?timestamp=gte:${fromTimestamp}` +
+      `&timestamp=lte:${latestTimestamp}` +
+      `&topic0=${entryPointInterface.getEvent('UserOperationEvent').topicHash}` +
+      `&topic1=${userOpHash}` +
+      `&limit=1&order=asc`
+    );
+  };
+
   beforeEach(() => {
+    restMock.onGet(latestBlockUrl).reply(
+      200,
+      JSON.stringify({
+        blocks: [
+          {
+            count: 1,
+            gas_used: 0,
+            hapi_version: '0.68.6',
+            hash: blockHash,
+            logs_bloom: emptyBloom,
+            name: 'FileUpdate',
+            number: 2593926,
+            previous_hash: `0x${'22'.repeat(32)}`,
+            size: 0,
+            timestamp: {
+              from: latestTimestamp,
+              to: latestTimestamp,
+            },
+          },
+        ],
+      }),
+    );
     sinon.stub(ethImpl['transactionService']['common'], 'getCurrentGasPriceForBlock').resolves('0xad78ebc5ac620000');
     sinon
       .stub(ethImpl['transactionService']['common'], 'resolveEvmAddress')
@@ -76,11 +126,11 @@ describe('@ethGetUserOperationReceipt eth_getUserOperationReceipt tests', async 
   });
 
   it('returns null when the user operation log is not found', async function () {
-    restMock
-      .onGet(
-        `contracts/results/logs?topic0=${entryPointInterface.getEvent('UserOperationEvent').topicHash}&topic1=${userOpHash}&limit=1&order=asc`,
-      )
-      .reply(200, JSON.stringify({ logs: [], links: { next: null } }));
+    for (const lookbackWindowSeconds of [300, 3600, 86400, 604800]) {
+      restMock
+        .onGet(buildUserOperationLookupUrl(lookbackWindowSeconds))
+        .reply(200, JSON.stringify({ logs: [], links: { next: null } }));
+    }
 
     const receipt = await ethImpl.getUserOperationReceipt(userOpHash, requestDetails);
     expect(receipt).to.be.null;
@@ -92,31 +142,27 @@ describe('@ethGetUserOperationReceipt eth_getUserOperationReceipt tests', async 
       [userOpHash, sender, paymaster, 1n, true, 250000000000000000n, 54321n],
     );
 
-    restMock
-      .onGet(
-        `contracts/results/logs?topic0=${entryPointInterface.getEvent('UserOperationEvent').topicHash}&topic1=${userOpHash}&limit=1&order=asc`,
-      )
-      .reply(
-        200,
-        JSON.stringify({
-          logs: [
-            {
-              address: entryPoint,
-              bloom: emptyBloom,
-              contract_id: '0.0.2529',
-              data: encodedUserOperationEvent.data,
-              index: 0,
-              topics: encodedUserOperationEvent.topics,
-              block_hash: blockHash,
-              block_number: 2593926,
-              timestamp: '1776353569.523776806',
-              transaction_hash: txHash,
-              transaction_index: 0,
-            },
-          ],
-          links: { next: null },
-        }),
-      );
+    restMock.onGet(buildUserOperationLookupUrl(300)).reply(
+      200,
+      JSON.stringify({
+        logs: [
+          {
+            address: entryPoint,
+            bloom: emptyBloom,
+            contract_id: '0.0.2529',
+            data: encodedUserOperationEvent.data,
+            index: 0,
+            topics: encodedUserOperationEvent.topics,
+            block_hash: blockHash,
+            block_number: 2593926,
+            timestamp: latestTimestamp,
+            transaction_hash: txHash,
+            transaction_index: 0,
+          },
+        ],
+        links: { next: null },
+      }),
+    );
     restMock.onGet(`contracts/results/${txHash}`).reply(
       200,
       JSON.stringify(
@@ -148,6 +194,55 @@ describe('@ethGetUserOperationReceipt eth_getUserOperationReceipt tests', async 
     expect(receipt?.logs).to.deep.equal(receipt?.receipt.logs);
   });
 
+  it('widens the timestamp search window until the user operation log is found', async function () {
+    const encodedUserOperationEvent = entryPointInterface.encodeEventLog(
+      entryPointInterface.getEvent('UserOperationEvent'),
+      [userOpHash, sender, paymaster, 3n, true, 1n, 2n],
+    );
+
+    restMock.onGet(buildUserOperationLookupUrl(300)).reply(200, JSON.stringify({ logs: [], links: { next: null } }));
+    restMock.onGet(buildUserOperationLookupUrl(3600)).reply(
+      200,
+      JSON.stringify({
+        logs: [
+          {
+            address: entryPoint,
+            bloom: emptyBloom,
+            contract_id: '0.0.2529',
+            data: encodedUserOperationEvent.data,
+            index: 0,
+            topics: encodedUserOperationEvent.topics,
+            block_hash: blockHash,
+            block_number: 2593926,
+            timestamp: latestTimestamp,
+            transaction_hash: txHash,
+            transaction_index: 0,
+          },
+        ],
+        links: { next: null },
+      }),
+    );
+    restMock.onGet(`contracts/results/${txHash}`).reply(
+      200,
+      JSON.stringify(
+        buildContractResult([
+          {
+            address: entryPoint,
+            data: encodedUserOperationEvent.data,
+            index: 0,
+            topics: encodedUserOperationEvent.topics,
+          },
+        ]),
+      ),
+    );
+
+    const receipt = await ethImpl.getUserOperationReceipt(userOpHash, requestDetails);
+
+    expect(receipt?.nonce).to.equal(numberTo0x(3n));
+    expect(receipt?.actualGasCost).to.equal(numberTo0x(1n));
+    expect(receipt?.actualGasUsed).to.equal(numberTo0x(2n));
+  });
+
   it('includes the revert reason log when the user operation failed', async function () {
     const revertReason = '0x08c379a00000000000000000000000000000000000000000000000000000000000000020';
     const encodedUserOperationEvent = entryPointInterface.encodeEventLog(
@@ -159,31 +254,27 @@ describe('@ethGetUserOperationReceipt eth_getUserOperationReceipt tests', async 
       [userOpHash, sender, 2n, revertReason],
     );
 
-    restMock
-      .onGet(
-        `contracts/results/logs?topic0=${entryPointInterface.getEvent('UserOperationEvent').topicHash}&topic1=${userOpHash}&limit=1&order=asc`,
-      )
-      .reply(
-        200,
-        JSON.stringify({
-          logs: [
-            {
-              address: entryPoint,
-              bloom: emptyBloom,
-              contract_id: '0.0.2529',
-              data: encodedUserOperationEvent.data,
-              index: 1,
-              topics: encodedUserOperationEvent.topics,
-              block_hash: blockHash,
-              block_number: 2593926,
-              timestamp: '1776353569.523776806',
-              transaction_hash: txHash,
-              transaction_index: 0,
-            },
-          ],
-          links: { next: null },
-        }),
-      );
+    restMock.onGet(buildUserOperationLookupUrl(300)).reply(
+      200,
+      JSON.stringify({
+        logs: [
+          {
+            address: entryPoint,
+            bloom: emptyBloom,
+            contract_id: '0.0.2529',
+            data: encodedUserOperationEvent.data,
+            index: 1,
+            topics: encodedUserOperationEvent.topics,
+            block_hash: blockHash,
+            block_number: 2593926,
+            timestamp: latestTimestamp,
+            transaction_hash: txHash,
+            transaction_index: 0,
+          },
+        ],
+        links: { next: null },
+      }),
+    );
     restMock.onGet(`contracts/results/${txHash}`).reply(
       200,
       JSON.stringify(

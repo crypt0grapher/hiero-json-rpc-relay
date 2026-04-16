@@ -25,6 +25,7 @@ import {
   ITransactionReceipt,
   IUserOperationReceipt,
   LockAcquisitionResult,
+  MirrorNodeContractLog,
   RequestDetails,
   TypedEvents,
 } from '../../../types';
@@ -48,6 +49,13 @@ export class TransactionService implements ITransactionService {
   private static readonly USER_OPERATION_REVERT_REASON_TOPIC = ethers.id(
     'UserOperationRevertReason(bytes32,address,uint256,bytes)',
   );
+
+  private static readonly USER_OPERATION_RECEIPT_LOOKBACK_WINDOWS_SECONDS = [
+    5 * 60,
+    60 * 60,
+    24 * 60 * 60,
+    7 * 24 * 60 * 60,
+  ] as const;
 
   /**
    * The cache service used for caching responses.
@@ -383,22 +391,11 @@ export class TransactionService implements ITransactionService {
   ): Promise<IUserOperationReceipt | null> {
     try {
       const normalizedUserOpHash = userOpHash.toLowerCase();
-      const matchingLogs = await this.mirrorNodeClient.getContractResultsLogsWithRetry(
-        requestDetails,
-        1,
-        {
-          topic0: TransactionService.USER_OPERATION_EVENT_TOPIC,
-          topic1: normalizedUserOpHash,
-        },
-        { limit: 1, order: constants.ORDER.ASC },
-      );
-
-      if (!matchingLogs.length) {
+      const matchingLog = await this.findUserOperationEventLog(normalizedUserOpHash, requestDetails);
+      if (!matchingLog) {
         this.logger.trace(`no user operation receipt for %s`, userOpHash);
         return null;
       }
-
-      const matchingLog = matchingLogs[0];
       const parsedUserOperationLog = TransactionService.ENTRY_POINT_INTERFACE.parseLog({
         topics: matchingLog.topics,
         data: matchingLog.data,
@@ -438,6 +435,59 @@ export class TransactionService implements ITransactionService {
     } catch (error) {
       throw this.common.genericErrorHandler(error, `Failed to retrieve user operation receipt for ${userOpHash}`);
     }
+  }
+
+  private async findUserOperationEventLog(
+    normalizedUserOpHash: string,
+    requestDetails: RequestDetails,
+  ): Promise<MirrorNodeContractLog | null> {
+    const latestBlocksResponse = await this.mirrorNodeClient.getLatestBlock(requestDetails);
+    const latestBlock = latestBlocksResponse?.blocks?.[0];
+    const latestTimestamp = latestBlock?.timestamp?.to;
+
+    if (!latestTimestamp) {
+      throw predefined.COULD_NOT_RETRIEVE_LATEST_BLOCK;
+    }
+
+    for (const lookbackWindowSeconds of TransactionService.USER_OPERATION_RECEIPT_LOOKBACK_WINDOWS_SECONDS) {
+      const matchingLogs = await this.mirrorNodeClient.getContractResultsLogsWithRetry(
+        requestDetails,
+        1,
+        {
+          timestamp: this.buildRecentTimestampRange(latestTimestamp, lookbackWindowSeconds),
+          topic0: TransactionService.USER_OPERATION_EVENT_TOPIC,
+          topic1: normalizedUserOpHash,
+        },
+        { limit: 1, order: constants.ORDER.ASC },
+      );
+
+      if (matchingLogs.length) {
+        return matchingLogs[0];
+      }
+    }
+
+    return null;
+  }
+
+  private buildRecentTimestampRange(latestTimestamp: string, lookbackWindowSeconds: number): [string, string] {
+    const latestTimestampNanos = this.timestampToNanos(latestTimestamp);
+    const lookbackWindowNanos = BigInt(lookbackWindowSeconds) * constants.NANOS_PER_SECOND;
+    const fromTimestampNanos =
+      latestTimestampNanos > lookbackWindowNanos ? latestTimestampNanos - lookbackWindowNanos : BigInt(0);
+
+    return [`gte:${this.nanosToTimestamp(fromTimestampNanos)}`, `lte:${latestTimestamp}`];
+  }
+
+  private timestampToNanos(timestamp: string): bigint {
+    const [secondsStr, nanosStr = '0'] = timestamp.split('.');
+    const nanos = BigInt(nanosStr.padEnd(9, '0'));
+    return BigInt(secondsStr) * constants.NANOS_PER_SECOND + nanos;
+  }
+
+  private nanosToTimestamp(nanos: bigint): string {
+    const seconds = nanos / constants.NANOS_PER_SECOND;
+    const remainingNanos = nanos % constants.NANOS_PER_SECOND;
+    return `${seconds}.${remainingNanos.toString().padStart(9, '0')}`;
   }
 
   /**
