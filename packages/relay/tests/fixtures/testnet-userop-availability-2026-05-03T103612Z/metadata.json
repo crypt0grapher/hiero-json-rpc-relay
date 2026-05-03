@@ -1,0 +1,34 @@
+{
+  "task": "task-010 — testnet bridge regression smoke + race-poll template",
+  "capturedAtUtc": "2026-05-03T10:36:12Z",
+  "operatorHost": "Mac",
+  "repoHeads": {
+    "goliath-bridge-backend": "c539294e3efdce3c645e1af6e092feea1ed51a44",
+    "json-rpc-relay": "13c7ad4a0ab9a3bc235d33e561cfafbce3e000f6",
+    "json-rpc-relay-branch": "fix/userop-receipt-7d-boundary"
+  },
+  "relayClientVersionStrings": {
+    "testnet": "goliath-relay/0.76.0-SNAPSHOT",
+    "mainnet": "goliath-relay/0.76.0-SNAPSHOT"
+  },
+  "testnetMethodAvailability": "eth_getUserOperationReceipt RETURNS -32601 method-not-found (not deployed)",
+  "mainnetBugStatus": "REPRODUCED — HTTP 500 + -32020 valid timestamp range — fix not yet deployed",
+  "bridgeSmokes": {
+    "step2_eoa_withdraw": {
+      "result": "PASS",
+      "operationId": "0a551bf7-5969-49d7-8bc4-99169ba5b882",
+      "originTxHash": "0x8bc13d268004f422ebb3b7f65a6a71d16aa84b29f782713221d41888796b25b6",
+      "destinationTxHash": "0x85b216eb7d107148f9a25411ffcdd8b4d1122717630005d0bbfb61e47a7d90a1",
+      "endToEndDurationSeconds": 13
+    },
+    "step3_erc1271_e2e": {
+      "result": "PASS",
+      "operationId": "2eea221f-53f4-49c9-b694-f5f8b23049af",
+      "originTxHash": "0x60071f64d42dfbc5f2c1e7cc8930170cb0642e34b3a1f2ea32d5f2423417f75b",
+      "destinationTxHash": "0xf93f0a8b2b46e5185febb8dfba03ce6f4de6b5d25cb8156ce1c4925d8424362b",
+      "endToEndDurationSeconds": 17
+    }
+  },
+  "totalTestnetXcnSpent": "10002 (returned to user as 8002 Sepolia XCN minus 2x 25bps fees)",
+  "followUpFiled": "~/goliath/mainnet/docs/issues/2026-05-03-testnet-relay-add-eth-get-user-operation-receipt.md"
+}

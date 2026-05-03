@@ -12,6 +12,7 @@ import type { ICacheClient } from '../../../clients/cache/ICacheClient';
 import { MirrorNodeClient } from '../../../clients/mirrorNodeClient';
 import constants from '../../../constants';
 import { JsonRpcError, predefined } from '../../../errors/JsonRpcError';
+import { MirrorNodeClientError } from '../../../errors/MirrorNodeClientError';
 import { SDKClientError } from '../../../errors/SDKClientError';
 import { createTransactionFromContractResult, TransactionFactory } from '../../../factories/transactionFactory';
 import {
@@ -50,11 +51,15 @@ export class TransactionService implements ITransactionService {
     'UserOperationRevertReason(bytes32,address,uint256,bytes)',
   );
 
+  // Mirror REST `/contracts/results/logs` enforces `(to - from) < 604800s` strictly,
+  // so the widest lookup window stays one second under the cap. See issue
+  // 2026-05-02-relay-eth-getuseroperationreceipt-500-staking-erc4337.
+  private static readonly MIRROR_TOPIC_LOG_MAX_RANGE_SECONDS = 7 * 24 * 60 * 60;
   private static readonly USER_OPERATION_RECEIPT_LOOKBACK_WINDOWS_SECONDS = [
     5 * 60,
     60 * 60,
     24 * 60 * 60,
-    7 * 24 * 60 * 60,
+    TransactionService.MIRROR_TOPIC_LOG_MAX_RANGE_SECONDS - 1,
   ] as const;
 
   /**
@@ -450,23 +455,50 @@ export class TransactionService implements ITransactionService {
     }
 
     for (const lookbackWindowSeconds of TransactionService.USER_OPERATION_RECEIPT_LOOKBACK_WINDOWS_SECONDS) {
-      const matchingLogs = await this.mirrorNodeClient.getContractResultsLogsWithRetry(
-        requestDetails,
-        1,
-        {
-          timestamp: this.buildRecentTimestampRange(latestTimestamp, lookbackWindowSeconds),
-          topic0: TransactionService.USER_OPERATION_EVENT_TOPIC,
-          topic1: normalizedUserOpHash,
-        },
-        { limit: 1, order: constants.ORDER.ASC },
-      );
+      try {
+        const matchingLogs = await this.mirrorNodeClient.getContractResultsLogsWithRetry(
+          requestDetails,
+          1,
+          {
+            timestamp: this.buildRecentTimestampRange(latestTimestamp, lookbackWindowSeconds),
+            topic0: TransactionService.USER_OPERATION_EVENT_TOPIC,
+            topic1: normalizedUserOpHash,
+          },
+          { limit: 1, order: constants.ORDER.ASC },
+        );
 
-      if (matchingLogs.length) {
-        return matchingLogs[0];
+        if (matchingLogs.length) {
+          return matchingLogs[0];
+        }
+      } catch (error) {
+        // Defense-in-depth against any future mirror-side change to the
+        // strictly-less-than-7d cap. The off-by-one is fixed in the constant
+        // above; this catch ensures a single per-window 400 with a "valid
+        // timestamp range" body is logged once and skipped, rather than
+        // propagating as -32020 / HTTP 500. Any other error shape rethrows.
+        if (TransactionService.isMirrorTimestampRange400(error)) {
+          this.logger.warn(
+            'Skipping user operation lookback window due to mirror "valid timestamp range" 400: lookbackWindowSeconds=%d, requestId=%s',
+            lookbackWindowSeconds,
+            requestDetails.requestId,
+          );
+          continue;
+        }
+        throw error;
       }
     }
 
     return null;
+  }
+
+  private static isMirrorTimestampRange400(error: unknown): error is MirrorNodeClientError {
+    if (!(error instanceof MirrorNodeClientError) || error.statusCode !== 400) {
+      return false;
+    }
+    const candidates = [error.message, error.detail, error.data, error.revertReason]
+      .filter((value): value is string => typeof value === 'string')
+      .join(' ');
+    return /valid timestamp range/i.test(candidates);
   }
 
   private buildRecentTimestampRange(latestTimestamp: string, lookbackWindowSeconds: number): [string, string] {

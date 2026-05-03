@@ -1,0 +1,24 @@
+{
+  "captured_at_utc": "2026-05-03T12:40:14Z",
+  "operator_host": "Mac",
+  "operator_user": "alex",
+  "mainnet_repo_head": "aed664f4215dea4c580319db35c034f92a0b7833",
+  "relay_repo_head": "13c7ad4a0ab9a3bc235d33e561cfafbce3e000f6",
+  "relay_repo_branch": "fix/userop-receipt-7d-boundary",
+  "mainnet_relay_deployed_image_pre_fix": "ghcr.io/crypt0grapher/hiero-json-rpc-relay/json-rpc-relay@sha256:4a117e36c6432f27d2f3d9c67cc897eb8d3b5febc4d225342c555abe3cb76101",
+  "mainnet_relay_image_pre_fix": "ghcr.io/crypt0grapher/hiero-json-rpc-relay/json-rpc-relay@sha256:4a117e36c6432f27d2f3d9c67cc897eb8d3b5febc4d225342c555abe3cb76101",
+  "mainnet_mirror_image": "ghcr.io/onyx-protocol/goliath-mirror/mirror-rest:main@sha256:0eb170983fbc8c0df75d2f5189fbc289fbcc6c7446770ab7f15e22913d15c04a",
+  "mainnet_client_version": "goliath-relay/0.76.0-SNAPSHOT",
+  "testnet_client_version": "goliath-relay/0.76.0-SNAPSHOT",
+  "evidence_summary": {
+    "negative_path_zero_hash": "HTTP 500, JSON-RPC -32020, body 'Cannot search topics without a valid timestamp range ... within 7d', data:400",
+    "negative_path_random_hash": "Same shape, different requestId",
+    "negative_path_fra_direct_origin": "Same shape \u2014 bug is at relay layer, not Cloudflare",
+    "positive_path_recent_userophash": "HTTP 200, full receipt with userOpHash 0x93a81542c38cb3aa1942e46ecf7b0cc49e20a22403fd5f7abae304df2a98bb2c, entryPoint 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789",
+    "mirror_boundary_604799s": "HTTP 200, empty logs",
+    "mirror_boundary_604800s": "HTTP 400, 'valid timestamp range'",
+    "mirror_boundary_604801s": "HTTP 400, 'valid timestamp range'",
+    "replay_byte_stable": true,
+    "testnet_method_status": "-32601 Method eth_getUserOperationReceipt not found"
+  }
+}

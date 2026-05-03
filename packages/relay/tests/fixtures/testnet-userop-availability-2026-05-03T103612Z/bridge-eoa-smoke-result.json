@@ -1,0 +1,21 @@
+{
+  "task": "task-010 step 2 — EOA bridge withdraw smoke",
+  "status": "PASS",
+  "amountHumanXcn": "5001",
+  "intentId": "abb386dc-5abd-41aa-8a2b-56558b729131",
+  "operationId": "0a551bf7-5969-49d7-8bc4-99169ba5b882",
+  "direction": "GOLIATH_TO_ETHEREUM",
+  "originChainId": 8901,
+  "destinationChainId": 11155111,
+  "originTxHash": "0x8bc13d268004f422ebb3b7f65a6a71d16aa84b29f782713221d41888796b25b6",
+  "destinationTxHash": "0x85b216eb7d107148f9a25411ffcdd8b4d1122717630005d0bbfb61e47a7d90a1",
+  "sender": "0x54fdcc3973ff3687f1ff8a5f4ce5e0f222886a68",
+  "recipient": "0x54fdcc3973ff3687f1ff8a5f4ce5e0f222886a68",
+  "outputAmountAtomic": "4001000000000000000000",
+  "outputAmountFormatted": "4001.0",
+  "feeAtomic": "1000000000000000000000",
+  "feeBps": 25,
+  "depositedAt": "2026-05-03T10:37:42.273Z",
+  "completedAt": "2026-05-03T10:37:55.015Z",
+  "endToEndDurationSeconds": 13
+}

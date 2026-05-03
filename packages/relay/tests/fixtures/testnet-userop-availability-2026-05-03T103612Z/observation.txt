@@ -1,0 +1,34 @@
+Testnet relay userOp method-availability state — task-010 step 1
+================================================================
+
+Captured at: see captured-at-utc.txt
+
+Endpoint: https://rpc.testnet.goliath.net/
+- web3_clientVersion: goliath-relay/0.76.0-SNAPSHOT (HTTP 200)
+- eth_chainId:        0x22c5 (8901, Goliath testnet)  (HTTP 200)
+- eth_getUserOperationReceipt(0x0...0):
+    HTTP 400 + JSON-RPC error -32601 "Method eth_getUserOperationReceipt not found"
+
+Endpoint: https://rpc.goliath.net/  (mainnet, for parallel comparison)
+- web3_clientVersion: goliath-relay/0.76.0-SNAPSHOT (HTTP 200)
+- eth_getUserOperationReceipt(0x0...0):
+    HTTP 500 + JSON-RPC error -32020 "Mirror node upstream failure: statusCode=400,
+    message=Cannot search topics without a valid timestamp range: Timestamp range by
+    the lower and upper bounds must be positive and within 7d"
+
+Conclusion
+----------
+- Testnet does NOT expose eth_getUserOperationReceipt. The off-by-one 7d-window bug
+  this issue is fixing therefore CANNOT be exercised on testnet today by any direct
+  RPC probe — the method does not exist there.
+- Mainnet relay (image 4a117e36…) carries commit 13c7ad4a which introduced the
+  off-by-one constant (USER_OPERATION_RECEIPT_LOOKBACK_WINDOWS_SECONDS[3] = 604800
+  exactly).
+- web3_clientVersion is the SemVer Lerna release ("0.76.0-SNAPSHOT") for both networks;
+  it does not surface the commit/digest. Mainnet vs testnet image divergence is a
+  function of which commit the deployed image was built from, not of SemVer.
+
+Therefore the testnet promotion gate for THIS issue is the bridge-stack regression
+smoke (steps 2 + 3), not a direct relay probe. The race-poll-testnet-template.sh
+is committed (step 4) so that the same race test can be run on testnet the moment
+eth_getUserOperationReceipt is deployed there (tracked as a P3 follow-up; see step 5).

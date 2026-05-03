@@ -1,0 +1,55 @@
+[36m==>[0m Smart-account e2e: sender=0x60Cd23f3c6d1286267D7Aa3c7beAFE542D44ce63 recipient=0x54Fdcc3973Ff3687F1FF8A5F4CE5E0F222886a68 amount=5001
+[32m✓[0m Intent registered via ERC-1271: intentId=384565f5-a119-4bd0-8a2e-789500bed210
+[36m==>[0m EOA Goliath balance: 979691.99763352 XCN
+[36m==>[0m Calling account.execute{value: 5001000000000000000000}(0xE708B75F7b6914479E63D3897bEF9e0dedcA3640, 5001000000000000000000, 0x)
+[36m==>[0m execute() tx: 0x60071f64d42dfbc5f2c1e7cc8930170cb0642e34b3a1f2ea32d5f2423417f75b
+[32m✓[0m execute() mined in block 3138322
+[32m✓[0m Origin bound. Polling for operation completion...
+Operation snapshot: {
+  "operationId": "2eea221f-53f4-49c9-b694-f5f8b23049af",
+  "direction": "GOLIATH_TO_ETHEREUM",
+  "status": "COMPLETED",
+  "token": "XCN",
+  "amount": "5001000000000000000000",
+  "amountFormatted": "5001.0",
+  "fee": {
+    "amount": "1000000000000000000000",
+    "formatted": "1000.0",
+    "bps": 25
+  },
+  "outputAmount": "4001000000000000000000",
+  "outputAmountFormatted": "4001.0",
+  "sender": "0x60cd23f3c6d1286267d7aa3c7beafe542d44ce63",
+  "recipient": "0x54fdcc3973ff3687f1ff8a5f4ce5e0f222886a68",
+  "originChainId": 8901,
+  "destinationChainId": 11155111,
+  "originTxHash": "0x60071f64d42dfbc5f2c1e7cc8930170cb0642e34b3a1f2ea32d5f2423417f75b",
+  "destinationTxHash": "0xf93f0a8b2b46e5185febb8dfba03ce6f4de6b5d25cb8156ce1c4925d8424362b",
+  "originConfirmations": 0,
+  "requiredConfirmations": 0,
+  "timestamps": {
+    "depositedAt": "2026-05-03T10:38:35.330Z",
+    "finalizedAt": "2026-05-03T10:38:35.330Z",
+    "destinationSubmittedAt": "2026-05-03T10:38:36.419Z",
+    "completedAt": "2026-05-03T10:38:52.689Z"
+  },
+  "estimatedCompletionTime": null,
+  "holdUntil": null,
+  "error": null,
+  "isSameWallet": false,
+  "stakeOnGoliath": false,
+  "stakingTxHash": null,
+  "stakingError": null,
+  "settlement": {
+    "chainId": 11155111,
+    "chainName": "ethereum",
+    "tokenSymbol": "XCN",
+    "tokenAddress": "0x7a8adc542A35c93da263A188367F4bF4c445B8E9",
+    "tokenIsNative": false,
+    "amountAtomic": "4001000000000000000000",
+    "amountFormatted": "4001.0",
+    "txHash": "0xf93f0a8b2b46e5185febb8dfba03ce6f4de6b5d25cb8156ce1c4925d8424362b",
+    "completedAt": "2026-05-03T10:38:52.689Z"
+  }
+}
+[32m✓[0m Smart-account XCN withdraw COMPLETED via trace path (opId=2eea221f-53f4-49c9-b694-f5f8b23049af, destTx=0xf93f0a8b2b46e5185febb8dfba03ce6f4de6b5d25cb8156ce1c4925d8424362b)
