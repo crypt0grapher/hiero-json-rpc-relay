@@ -1,0 +1,22 @@
+{
+  "task": "task-010 step 3 — ERC-1271 / smart-account bridge withdraw smoke (verifyOriginAny trace path)",
+  "status": "PASS",
+  "amountHumanXcn": "5001",
+  "intentId": "384565f5-a119-4bd0-8a2e-789500bed210",
+  "operationId": "2eea221f-53f4-49c9-b694-f5f8b23049af",
+  "smartAccountAddress": "0x60Cd23f3c6d1286267D7Aa3c7beAFE542D44ce63",
+  "ownerEoaAddress": "0x54Fdcc3973Ff3687F1FF8A5F4CE5E0F222886a68",
+  "direction": "GOLIATH_TO_ETHEREUM",
+  "originChainId": 8901,
+  "destinationChainId": 11155111,
+  "originTxHash": "0x60071f64d42dfbc5f2c1e7cc8930170cb0642e34b3a1f2ea32d5f2423417f75b",
+  "destinationTxHash": "0xf93f0a8b2b46e5185febb8dfba03ce6f4de6b5d25cb8156ce1c4925d8424362b",
+  "executeBlockNumber": 3138322,
+  "outputAmountAtomic": "4001000000000000000000",
+  "outputAmountFormatted": "4001.0",
+  "feeAtomic": "1000000000000000000000",
+  "feeBps": 25,
+  "depositedAt": "2026-05-03T10:38:35.330Z",
+  "completedAt": "2026-05-03T10:38:52.689Z",
+  "endToEndDurationSeconds": 17
+}

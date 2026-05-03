@@ -1,0 +1,2 @@
+{"error":{"code":-32601,"message":"[Request ID: c1f4a769-408d-45fc-b544-62d2a24ea02a] Method eth_getUserOperationReceipt not found"},"jsonrpc":"2.0","id":1}
+HTTP_STATUS:400

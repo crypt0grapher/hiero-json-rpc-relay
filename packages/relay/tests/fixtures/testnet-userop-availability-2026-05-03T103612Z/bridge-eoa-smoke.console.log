@@ -1,0 +1,56 @@
+[36m==>[0m EOA withdraw smoke — 5001 XCN from 0x54Fdcc3973Ff3687F1FF8A5F4CE5E0F222886a68 → 0x54Fdcc3973Ff3687F1FF8A5F4CE5E0F222886a68 (Sepolia)
+[36m==>[0m Goliath XCN balance: 984693.00813352
+[36m==>[0m Signed EIP-712 intent (canonical Goliath domain, chainId=8901)
+[32m✓[0m Intent registered: intentId=abb386dc-5abd-41aa-8a2b-56558b729131 relayer=0xE708B75F7b6914479E63D3897bEF9e0dedcA3640
+[36m==>[0m Sending 5001 XCN to relayer 0xE708B75F7b6914479E63D3897bEF9e0dedcA3640...
+[36m==>[0m Sent tx 0x8bc13d268004f422ebb3b7f65a6a71d16aa84b29f782713221d41888796b25b6, waiting for confirmation...
+[32m✓[0m On-chain tx confirmed in block 3138309: 0x8bc13d268004f422ebb3b7f65a6a71d16aa84b29f782713221d41888796b25b6
+[32m✓[0m Origin bound to intent. Polling for operation completion (≤ 4 min)...
+Operation snapshot: {
+  "operationId": "0a551bf7-5969-49d7-8bc4-99169ba5b882",
+  "direction": "GOLIATH_TO_ETHEREUM",
+  "status": "COMPLETED",
+  "token": "XCN",
+  "amount": "5001000000000000000000",
+  "amountFormatted": "5001.0",
+  "fee": {
+    "amount": "1000000000000000000000",
+    "formatted": "1000.0",
+    "bps": 25
+  },
+  "outputAmount": "4001000000000000000000",
+  "outputAmountFormatted": "4001.0",
+  "sender": "0x54fdcc3973ff3687f1ff8a5f4ce5e0f222886a68",
+  "recipient": "0x54fdcc3973ff3687f1ff8a5f4ce5e0f222886a68",
+  "originChainId": 8901,
+  "destinationChainId": 11155111,
+  "originTxHash": "0x8bc13d268004f422ebb3b7f65a6a71d16aa84b29f782713221d41888796b25b6",
+  "destinationTxHash": "0x85b216eb7d107148f9a25411ffcdd8b4d1122717630005d0bbfb61e47a7d90a1",
+  "originConfirmations": 0,
+  "requiredConfirmations": 0,
+  "timestamps": {
+    "depositedAt": "2026-05-03T10:37:42.273Z",
+    "finalizedAt": "2026-05-03T10:37:42.273Z",
+    "destinationSubmittedAt": "2026-05-03T10:37:42.798Z",
+    "completedAt": "2026-05-03T10:37:55.015Z"
+  },
+  "estimatedCompletionTime": null,
+  "holdUntil": null,
+  "error": null,
+  "isSameWallet": true,
+  "stakeOnGoliath": false,
+  "stakingTxHash": null,
+  "stakingError": null,
+  "settlement": {
+    "chainId": 11155111,
+    "chainName": "ethereum",
+    "tokenSymbol": "XCN",
+    "tokenAddress": "0x7a8adc542A35c93da263A188367F4bF4c445B8E9",
+    "tokenIsNative": false,
+    "amountAtomic": "4001000000000000000000",
+    "amountFormatted": "4001.0",
+    "txHash": "0x85b216eb7d107148f9a25411ffcdd8b4d1122717630005d0bbfb61e47a7d90a1",
+    "completedAt": "2026-05-03T10:37:55.015Z"
+  }
+}
+[32m✓[0m EOA XCN withdraw COMPLETED (opId=0a551bf7-5969-49d7-8bc4-99169ba5b882, destTx=0x85b216eb7d107148f9a25411ffcdd8b4d1122717630005d0bbfb61e47a7d90a1)

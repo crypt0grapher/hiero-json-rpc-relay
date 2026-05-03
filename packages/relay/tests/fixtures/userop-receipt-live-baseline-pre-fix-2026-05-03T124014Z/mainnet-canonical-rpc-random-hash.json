@@ -1,0 +1,2 @@
+{"error":{"code":-32020,"message":"[Request ID: c3aaa303-577e-4f7a-8027-7f2d29a3370a] Mirror node upstream failure: statusCode=400, message=Cannot search topics without a valid timestamp range: Timestamp range by the lower and upper bounds must be positive and within 7d","data":400},"jsonrpc":"2.0","id":1}
+HTTP_STATUS:500
