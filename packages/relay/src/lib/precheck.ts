@@ -2,6 +2,7 @@
 
 import { ConfigService } from '@hashgraph/json-rpc-config-service/dist/services';
 import { ethers, Transaction } from 'ethers';
+import { Counter, Registry } from 'prom-client';
 
 import { prepend0x } from '../formatters';
 import { MirrorNodeClient } from './clients';
@@ -13,29 +14,62 @@ import { IAccountBalance } from './types/mirrorNode';
 
 /**
  * Precheck class for handling various prechecks before sending a raw transaction.
+ *
+ * Nonce-domain preflight rejections are tracked on the
+ * `rpc_relay_wrong_nonce_preflight_rejections_total` Prometheus counter with
+ * a `reason` label of:
+ *  - "too_high"    — tx.nonce > allowed upper bound. Closes the residual leak
+ *                    in the parent task (task-001 2026-05-21): wrong-too-high
+ *                    nonces would otherwise submit an EthereumTransaction and
+ *                    burn the FRA operator 0.0.1011 wrapper fee on consensus
+ *                    WRONG_NONCE rejection.
+ *  - "too_low"     — tx.nonce < allowed upper bound (preserves existing
+ *                    NONCE_TOO_LOW behavior).
+ *  - "unavailable" — account nonce could not be resolved (RESOURCE_NOT_FOUND).
  */
 export class Precheck {
   private readonly mirrorNodeClient: MirrorNodeClient;
   private readonly chain: string;
   private readonly transactionPoolService: TransactionPoolService;
   private readonly authoritativeNonceService: AuthoritativeNonceService;
+  private readonly wrongNoncePreflightRejections: Counter;
 
   /**
    * Creates an instance of Precheck.
    * @param mirrorNodeClient - The MirrorNodeClient instance.
    * @param chainId - The chain ID.
    * @param transactionPoolService
+   * @param authoritativeNonceService
+   * @param register - Prometheus registry for exposing precheck metrics. A
+   *                   fresh `Registry` is created when none is provided so the
+   *                   counter is always observable (unit tests and other
+   *                   instantiation paths that do not thread the relay
+   *                   Registry still work).
    */
   constructor(
     mirrorNodeClient: MirrorNodeClient,
     chainId: string,
     transactionPoolService: TransactionPoolService,
     authoritativeNonceService: AuthoritativeNonceService,
+    register: Registry = new Registry(),
   ) {
     this.mirrorNodeClient = mirrorNodeClient;
     this.chain = chainId;
     this.transactionPoolService = transactionPoolService;
     this.authoritativeNonceService = authoritativeNonceService;
+
+    const metricName = 'rpc_relay_wrong_nonce_preflight_rejections_total';
+    register.removeSingleMetric(metricName);
+    this.wrongNoncePreflightRejections = new Counter({
+      name: metricName,
+      help:
+        'Counter for nonce-domain preflight rejections in Precheck.nonce(). ' +
+        'Reason "too_high" closes the residual mirror-AHEAD-of-consensus leak ' +
+        'that would otherwise submit an EthereumTransaction and burn the FRA ' +
+        'operator wrapper fee on WRONG_NONCE rejection.',
+      labelNames: ['reason'],
+      registers: [register],
+    });
   }
 
   /**
@@ -108,12 +142,17 @@ export class Precheck {
     const nonceState = await this.getAccountNonceState(parsedTx, requestDetails);
     const mirrorAccountInfo = nonceState.mirrorAccount;
 
-    // We expect this check to be executed against a transaction that is already
-    // in the TxPool, which is why we subtract 1 from the TxPool size, to avoid
-    // counting it twice.
+    // The current tx has already been saved to the tx-pool before this
+    // stateful precheck runs, so `pendingTransactions` already includes it.
+    // The highest currently allowed nonce for the in-flight tx is therefore
+    //   allowedNonce = effectiveNonce + max(pendingTransactions - 1, 0)
+    // with `Math.max` guarding against the (defensive) zero case so we never
+    // hand a value below `effectiveNonce` to `nonce()` and accidentally widen
+    // the NONCE_TOO_LOW window. See parent task
+    // ~/goliath/mainnet/.memory-bank/tasks/2026-05-21-relay-wrong-nonce-mirror-ahead-of-consensus-divergence/task-001.
     const pendingTransactions = await this.transactionPoolService.getPendingCount(parsedTx.from!, 1);
-    const signerNonce = nonceState.effectiveNonce + pendingTransactions - 1;
-    this.nonce(parsedTx, signerNonce);
+    const allowedNonce = nonceState.effectiveNonce + Math.max(pendingTransactions - 1, 0);
+    this.nonce(parsedTx, allowedNonce);
     this.balance(parsedTx, mirrorAccountInfo.balance);
     this.accessList(parsedTx);
     await this.receiverAccount(parsedTx, requestDetails);
@@ -136,16 +175,42 @@ export class Precheck {
   }
 
   /**
-   * Checks the nonce of the transaction.
+   * Checks the nonce of the transaction against the highest currently allowed
+   * nonce for the sender.
+   *
+   * `accountNonce` is the already-computed allowed upper bound — for the
+   * stateful path that is `effectiveNonce + max(pendingCountIncludingCurrent - 1, 0)`
+   * (see {@link validateAccountAndNetworkStateful}). Keeping this method pure
+   * lets the stateless path call it directly with the bare mirror/consensus
+   * nonce when no tx-pool context is available.
+   *
+   * Symmetric semantics:
+   *  - tx.nonce <  accountNonce → NONCE_TOO_LOW (existing behavior preserved).
+   *  - tx.nonce == accountNonce → pass.
+   *  - tx.nonce >  accountNonce → NONCE_TOO_HIGH (closes the parent-task leak —
+   *    rejects before {@code hapiService.submitEthereumTransaction()} burns the
+   *    FRA operator 0.0.1011 wrapper fee on WRONG_NONCE rejection).
+   *
+   * Every rejection increments the
+   * `rpc_relay_wrong_nonce_preflight_rejections_total` Prometheus counter with
+   * the matching `reason` label.
+   *
    * @param tx - The transaction.
-   * @param accountNonce - The nonce of the account.
+   * @param accountNonce - The highest currently allowed nonce for the sender.
    */
   nonce(tx: Transaction, accountNonce: number | undefined): void {
     if (accountNonce == undefined) {
+      this.wrongNoncePreflightRejections.labels('unavailable').inc();
       throw predefined.RESOURCE_NOT_FOUND(`Account nonce unavailable for address: ${tx.from}.`);
     }
 
+    if (tx.nonce > accountNonce) {
+      this.wrongNoncePreflightRejections.labels('too_high').inc();
+      throw predefined.NONCE_TOO_HIGH(tx.nonce, accountNonce);
+    }
+
     if (accountNonce > tx.nonce) {
+      this.wrongNoncePreflightRejections.labels('too_low').inc();
       throw predefined.NONCE_TOO_LOW(tx.nonce, accountNonce);
     }
   }

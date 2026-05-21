@@ -743,6 +743,18 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
 
           const saveStub = sinon.stub(txPool, 'saveTransaction').resolves();
           const removeStub = sinon.stub(txPool, 'removeTransaction').resolves();
+          // Stub getPendingCount per-call to simulate the production scenario
+          // where the in-flight tx-count grows as concurrent txs are enqueued.
+          // - Call 1 (firstTx, nonce=0): pending=1 → allowedNonce = 0 + max(0,0) = 0 → accepts 0.
+          // - Call 2 (secondTx, nonce=1): pending=2 → allowedNonce = 0 + max(1,0) = 1 → accepts 1.
+          // Required by the new symmetric NONCE_TOO_HIGH preflight in
+          // precheck.nonce(); without per-call increment one of the two txs
+          // would (correctly) be rejected and this concurrency assertion would fail.
+          const getPendingCountStub = sinon.stub(txPool, 'getPendingCount');
+          getPendingCountStub.onCall(0).resolves(1);
+          getPendingCountStub.onCall(1).resolves(2);
+          // Defensive default for any subsequent invocation (none expected).
+          getPendingCountStub.resolves(2);
 
           const firstTransaction = await signTransaction(transaction);
           const secondTransaction = await signTransaction({ ...transaction, nonce: 1 });
