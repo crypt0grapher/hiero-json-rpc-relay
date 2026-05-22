@@ -152,6 +152,7 @@ export class EthImpl implements Eth {
       logger,
       mirrorNodeClient,
       hapiService,
+      registry,
     );
     this.filterService = new FilterService(mirrorNodeClient, logger, cacheService, this.common);
     this.feeService = new FeeService(this.common, logger);

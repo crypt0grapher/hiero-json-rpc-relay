@@ -112,6 +112,13 @@ export default class KoaJsonRpc {
 
       ctx.status = statusErrorCode;
       ctx.state.status = `${ctx.status} (${statusErrorMessage})`;
+
+      // For a 503 Service Unavailable (e.g. CONSENSUS_NONCE_UNAVAILABLE fail-closed
+      // path), advise the client to retry quickly. The condition is transient —
+      // it clears as soon as the consensus gRPC lookup succeeds again.
+      if (statusErrorCode === 503) {
+        ctx.set('Retry-After', '1');
+      }
     }
   }
 

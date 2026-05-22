@@ -328,6 +328,14 @@ export class AccountService implements IAccountService {
         return constants.ZERO_HEX;
       }
 
+      // Fail closed: when the consensus-side nonce lookup is unavailable the
+      // snapshot has no usable `effectiveNonce`. We MUST NOT serve a
+      // mirror-derived value as authoritative — surface a temporary error
+      // (mapped to HTTP 503 + Retry-After: 1) so the client retries.
+      if (latestNonceSnapshot.source === 'consensus_unavailable' || latestNonceSnapshot.effectiveNonce == null) {
+        throw predefined.CONSENSUS_NONCE_UNAVAILABLE;
+      }
+
       if (blockNumOrTag == constants.BLOCK_PENDING) {
         return numberTo0x(
           latestNonceSnapshot.effectiveNonce + (await this.transactionPoolService.getPendingCount(address)),
@@ -437,6 +445,12 @@ export class AccountService implements IAccountService {
   private async getAccountLatestEthereumNonce(address: string, requestDetails: RequestDetails): Promise<string> {
     const latestNonceSnapshot = await this.authoritativeNonceService.getLatestNonceSnapshot(address, requestDetails);
     if (latestNonceSnapshot) {
+      // Fail closed when consensus is unavailable — same rationale as
+      // getTransactionCount(): never serve a mirror-derived nonce as
+      // authoritative.
+      if (latestNonceSnapshot.source === 'consensus_unavailable' || latestNonceSnapshot.effectiveNonce == null) {
+        throw predefined.CONSENSUS_NONCE_UNAVAILABLE;
+      }
       return numberTo0x(latestNonceSnapshot.effectiveNonce);
     }
 

@@ -133,9 +133,13 @@ describe('Open RPC Specification', function () {
 
     clientServiceInstance = new ClientService(logger, registry, hbarLimitService);
     sdkClientStub = sinon.createStubInstance(SDKClient);
+    // Consensus nonce is the authoritative source in AuthoritativeNonceService
+    // (effectiveNonce = consensusNonce ?? mirrorNonce). `signedTransactionHash`
+    // is pre-signed with nonce=4, so consensus must match to satisfy the new
+    // symmetric NONCE_TOO_HIGH preflight in precheck.nonce().
     sdkClientStub.getAccountInfo.resolves({
       ethereumNonce: {
-        toNumber: () => 0,
+        toNumber: () => 4,
       },
     } as any);
     sinon.stub(clientServiceInstance, 'getSDKClient').returns(sdkClientStub);
@@ -224,7 +228,12 @@ describe('Open RPC Specification', function () {
         balance: {
           balance: 100000000000,
         },
-        ethereum_nonce: 0,
+        // `signedTransactionHash` (helpers.ts:440) is pre-signed with nonce=4
+        // for this same address. The symmetric NONCE_TOO_HIGH preflight added
+        // in precheck.nonce() requires the mocked mirror nonce to match the
+        // tx nonce so the OpenRPC schema-conformance test executes the happy
+        // path. Bumping from 0 → 4 only affects this address in this suite.
+        ethereum_nonce: 4,
       }),
     );
     mock

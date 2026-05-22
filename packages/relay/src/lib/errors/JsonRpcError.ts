@@ -41,6 +41,16 @@ export const predefined = {
       data,
     });
   },
+  CONSENSUS_NONCE_UNAVAILABLE: new JsonRpcError({
+    // Dedicated code so the HTTP error mapper can return 503 + Retry-After: 1.
+    // Raised when the consensus-side gRPC AccountInfoQuery times out or fails
+    // and AuthoritativeNonceService fails closed instead of serving a
+    // potentially-drifted mirror nonce. Temporary by nature — the client
+    // should retry. See task-002 of
+    // 2026-05-21-relay-wrong-nonce-mirror-ahead-of-consensus-divergence.
+    code: -32016,
+    message: 'Consensus nonce temporarily unavailable. Please try again.',
+  }),
   DEPENDENT_SERVICE_IMMATURE_RECORDS: new JsonRpcError({
     code: -32015,
     message: 'Dependent service returned immature records',

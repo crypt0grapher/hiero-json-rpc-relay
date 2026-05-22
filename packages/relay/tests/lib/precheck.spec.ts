@@ -715,7 +715,12 @@ describe('Precheck', async function () {
       }
     });
 
-    it(`should not fail for next nonce`, async function () {
+    it(`should not fail when tx.nonce equals the allowed upper bound`, async function () {
+      // `accountNonce` is the already-computed allowed upper bound for the
+      // sender (see `validateAccountAndNetworkStateful`). With one prior
+      // pending tx in the pool plus the current tx, that upper bound is
+      // `effectiveNonce + 1` — and tx.nonce = effectiveNonce + 1 = 4 must pass.
+      const allowedUpperBound = mirrorAccount.ethereum_nonce + 1;
       const tx = {
         ...defaultTx,
         nonce: 4,
@@ -725,7 +730,61 @@ describe('Precheck', async function () {
 
       mock.onGet(`accounts/${parsedTx.from}${limitOrderPostFix}`).reply(200, JSON.stringify(mirrorAccount));
 
-      precheck.nonce(parsedTx, mirrorAccount.ethereum_nonce);
+      precheck.nonce(parsedTx, allowedUpperBound);
+    });
+
+    // Regression-locking tests for parent task
+    // ~/goliath/mainnet/.memory-bank/tasks/2026-05-21-relay-wrong-nonce-mirror-ahead-of-consensus-divergence/task-001.
+    // `accountNonce` is the highest currently allowed nonce (computed by
+    // `validateAccountAndNetworkStateful` as `effectiveNonce + max(pendingCount-1, 0)`),
+    // so tx.nonce > accountNonce must be rejected as NONCE_TOO_HIGH before
+    // any EthereumTransaction is submitted (which would burn the FRA operator
+    // wrapper fee on consensus rejection).
+    it(`should fail for high nonce (regression: mirror ahead of consensus)`, async function () {
+      const upperBoundNonce = 169;
+      const tx = {
+        ...defaultTx,
+        nonce: 170,
+      };
+      const signed = await signTransaction(tx);
+      const parsedTx = ethers.Transaction.from(signed);
+
+      try {
+        precheck.nonce(parsedTx, upperBoundNonce);
+        expectedError();
+      } catch (e: any) {
+        expect(e).to.eql(predefined.NONCE_TOO_HIGH(parsedTx.nonce, upperBoundNonce));
+      }
+    });
+
+    it(`should pass when tx.nonce equals the allowed upper bound`, async function () {
+      const upperBoundNonce = 169;
+      const tx = {
+        ...defaultTx,
+        nonce: 169,
+      };
+      const signed = await signTransaction(tx);
+      const parsedTx = ethers.Transaction.from(signed);
+
+      // Must not throw
+      precheck.nonce(parsedTx, upperBoundNonce);
+    });
+
+    it(`should still throw NONCE_TOO_LOW when tx.nonce is below the allowed upper bound`, async function () {
+      const upperBoundNonce = 169;
+      const tx = {
+        ...defaultTx,
+        nonce: 168,
+      };
+      const signed = await signTransaction(tx);
+      const parsedTx = ethers.Transaction.from(signed);
+
+      try {
+        precheck.nonce(parsedTx, upperBoundNonce);
+        expectedError();
+      } catch (e: any) {
+        expect(e).to.eql(predefined.NONCE_TOO_LOW(parsedTx.nonce, upperBoundNonce));
+      }
     });
   });
 
@@ -858,6 +917,185 @@ describe('Precheck', async function () {
       });
       expect(authoritativeNonceService.getLatestNonceSnapshot.calledOnceWith(parsedTx.from, requestDetails)).to.be.true;
       expect(localTransactionPoolService.getPendingCount.calledOnceWith(parsedTx.from, 1)).to.be.true;
+    });
+
+    // Regression-locking stateful tests for parent task
+    // ~/goliath/mainnet/.memory-bank/tasks/2026-05-21-relay-wrong-nonce-mirror-ahead-of-consensus-divergence/task-001.
+    //
+    // The current tx is saved to the pool BEFORE stateful precheck runs, so
+    // `pendingCountIncludingCurrent` already counts the in-flight tx. The
+    // allowed upper bound for the in-flight tx is therefore
+    //   allowedNonce = effectiveNonce + max(pendingCountIncludingCurrent - 1, 0).
+    //
+    // Boundary semantics enforced by these tests:
+    //   - no other pending  -> pendingCountIncludingCurrent=1
+    //     allowed nonce = effectiveNonce
+    //     effectiveNonce+1 MUST throw NONCE_TOO_HIGH
+    //   - one earlier pending + current -> pendingCountIncludingCurrent=2
+    //     allowed nonce = effectiveNonce+1
+    //     effectiveNonce+1 MUST pass; effectiveNonce+2 MUST throw NONCE_TOO_HIGH
+    it('rejects NONCE_TOO_HIGH when current tx is the only pending tx and tx.nonce > effectiveNonce', async function () {
+      const wallet = ethers.Wallet.createRandom();
+      const signed = await wallet.signTransaction({ ...defaultTx, from: wallet.address, nonce: 170 });
+      const parsedTx = ethers.Transaction.from(signed);
+      const balance = {
+        balance: 1_000_000_000,
+        timestamp: '1654168500.007651338',
+        tokens: [],
+      };
+
+      authoritativeNonceService.getLatestNonceSnapshot.resolves({
+        consensusNonce: 169,
+        effectiveNonce: 169,
+        mirrorAccount: {
+          balance,
+          ethereum_nonce: 169,
+          evm_address: parsedTx.from,
+        } as any,
+        mirrorNonce: 169,
+        source: 'consensus',
+      });
+      localTransactionPoolService.getPendingCount.resolves(1); // only the current tx
+
+      try {
+        await localPrecheck.validateAccountAndNetworkStateful(parsedTx, defaultGasPrice, requestDetails);
+        expectedError();
+      } catch (e: any) {
+        expect(e).to.eql(predefined.NONCE_TOO_HIGH(parsedTx.nonce, 169));
+      }
+    });
+
+    it('accepts NONCE = effectiveNonce + 1 when one earlier tx is pending in the pool', async function () {
+      const wallet = ethers.Wallet.createRandom();
+      const signed = await wallet.signTransaction({ ...defaultTx, from: wallet.address, nonce: 170 });
+      const parsedTx = ethers.Transaction.from(signed);
+      const balance = {
+        balance: 1_000_000_000,
+        timestamp: '1654168500.007651338',
+        tokens: [],
+      };
+
+      authoritativeNonceService.getLatestNonceSnapshot.resolves({
+        consensusNonce: 169,
+        effectiveNonce: 169,
+        mirrorAccount: {
+          balance,
+          ethereum_nonce: 169,
+          evm_address: parsedTx.from,
+        } as any,
+        mirrorNonce: 169,
+        source: 'consensus',
+      });
+      // one earlier pending + the current tx
+      localTransactionPoolService.getPendingCount.resolves(2);
+
+      const nonceState = await localPrecheck.validateAccountAndNetworkStateful(
+        parsedTx,
+        defaultGasPrice,
+        requestDetails,
+      );
+
+      expect(nonceState).to.deep.equal({
+        accountNonce: 169,
+        consensusNonce: 169,
+        mirrorNonce: 169,
+        source: 'consensus',
+      });
+    });
+
+    it('rejects NONCE_TOO_HIGH when tx.nonce exceeds effectiveNonce + (pendingCountIncludingCurrent - 1)', async function () {
+      const wallet = ethers.Wallet.createRandom();
+      const signed = await wallet.signTransaction({ ...defaultTx, from: wallet.address, nonce: 171 });
+      const parsedTx = ethers.Transaction.from(signed);
+      const balance = {
+        balance: 1_000_000_000,
+        timestamp: '1654168500.007651338',
+        tokens: [],
+      };
+
+      authoritativeNonceService.getLatestNonceSnapshot.resolves({
+        consensusNonce: 169,
+        effectiveNonce: 169,
+        mirrorAccount: {
+          balance,
+          ethereum_nonce: 169,
+          evm_address: parsedTx.from,
+        } as any,
+        mirrorNonce: 169,
+        source: 'consensus',
+      });
+      // one earlier pending + the current tx
+      localTransactionPoolService.getPendingCount.resolves(2);
+
+      try {
+        await localPrecheck.validateAccountAndNetworkStateful(parsedTx, defaultGasPrice, requestDetails);
+        expectedError();
+      } catch (e: any) {
+        // Allowed nonce = effectiveNonce + (2 - 1) = 170; tx.nonce = 171 → too high
+        expect(e).to.eql(predefined.NONCE_TOO_HIGH(parsedTx.nonce, 170));
+      }
+    });
+
+    // task-002 (2026-05-21 wrong-nonce mirror-ahead): when the consensus-side
+    // nonce lookup is unavailable the snapshot has no usable effectiveNonce.
+    // The send-time stateful precheck MUST fail closed with
+    // CONSENSUS_NONCE_UNAVAILABLE — this runs before TransactionService calls
+    // hapiService.submitEthereumTransaction(), so no EthereumTransaction
+    // reaches consensus and the FRA operator wrapper fee is not burned.
+    it('fails closed with CONSENSUS_NONCE_UNAVAILABLE when the snapshot source is consensus_unavailable', async function () {
+      const wallet = ethers.Wallet.createRandom();
+      const signed = await wallet.signTransaction({ ...defaultTx, from: wallet.address, nonce: 170 });
+      const parsedTx = ethers.Transaction.from(signed);
+
+      authoritativeNonceService.getLatestNonceSnapshot.resolves({
+        consensusNonce: null,
+        effectiveNonce: null,
+        mirrorAccount: {
+          balance: { balance: 1_000_000_000, timestamp: '1654168500.007651338', tokens: [] },
+          ethereum_nonce: 170,
+          evm_address: parsedTx.from,
+        } as any,
+        mirrorNonce: 170,
+        source: 'consensus_unavailable',
+      } as any);
+
+      try {
+        await localPrecheck.validateAccountAndNetworkStateful(parsedTx, defaultGasPrice, requestDetails);
+        expectedError();
+      } catch (e: any) {
+        expect(e).to.eql(predefined.CONSENSUS_NONCE_UNAVAILABLE);
+      }
+
+      // The guard returns before any tx-pool / nonce-bound work runs, so the
+      // wrong-too-high mirror nonce (170) is never used for send-time precheck.
+      expect(localTransactionPoolService.getPendingCount.called).to.be.false;
+    });
+
+    // Defense-in-depth: even a malformed snapshot with source 'consensus' but a
+    // null effectiveNonce must fail closed rather than coerce null into a nonce.
+    it('fails closed when effectiveNonce is null even if source is not consensus_unavailable', async function () {
+      const wallet = ethers.Wallet.createRandom();
+      const signed = await wallet.signTransaction({ ...defaultTx, from: wallet.address, nonce: 5 });
+      const parsedTx = ethers.Transaction.from(signed);
+
+      authoritativeNonceService.getLatestNonceSnapshot.resolves({
+        consensusNonce: null,
+        effectiveNonce: null,
+        mirrorAccount: {
+          balance: { balance: 1_000_000_000, timestamp: '1654168500.007651338', tokens: [] },
+          ethereum_nonce: 5,
+          evm_address: parsedTx.from,
+        } as any,
+        mirrorNonce: 5,
+        source: 'consensus',
+      } as any);
+
+      try {
+        await localPrecheck.validateAccountAndNetworkStateful(parsedTx, defaultGasPrice, requestDetails);
+        expectedError();
+      } catch (e: any) {
+        expect(e).to.eql(predefined.CONSENSUS_NONCE_UNAVAILABLE);
+      }
     });
   });
 

@@ -79,6 +79,17 @@ export interface ConfigProperty {
  * its type, whether it is required, and its default value.
  */
 const _CONFIG = {
+  AUTHORITATIVE_NONCE_MIRROR_FALLBACK_TTL_MS: {
+    type: 'number',
+    required: false,
+    // Cache TTL (ms) applied to an explicit, compatibility-only mirror-derived
+    // nonce fallback in AuthoritativeNonceService. Bounded tightly (default
+    // 250ms) so any mirror-AHEAD-of-consensus drift expires fast. This TTL is
+    // NEVER used for a `consensus_unavailable` snapshot — that state fails
+    // closed. See task-002 of
+    // 2026-05-21-relay-wrong-nonce-mirror-ahead-of-consensus-divergence.
+    defaultValue: 250,
+  },
   BATCH_REQUESTS_DISALLOWED_METHODS: {
     type: 'strArray',
     required: false,
@@ -221,7 +232,7 @@ const _CONFIG = {
   ETH_GET_TRANSACTION_COUNT_CONSENSUS_TIMEOUT_MS: {
     type: 'number',
     required: false,
-    defaultValue: 1000,
+    defaultValue: 5000, // Re-scoped 2026-05-22 (Q1-A): pod path to gateway :30211 is >3 s TCP timeout; 5 s default with 10 s SDK deadline. See 2026-05-21 issue handoff §11.
   },
   ETH_GET_TRANSACTION_COUNT_MAX_BLOCK_RANGE: {
     type: 'number',

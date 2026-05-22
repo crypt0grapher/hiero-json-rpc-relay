@@ -66,6 +66,12 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
     restMock.reset();
     sdkClientStub = sinon.createStubInstance(SDKClient);
     getSdkClientStub = sinon.stub(hapiServiceInstance, 'getSDKClient').returns(sdkClientStub);
+    // Model the steady state: the consensus-side AccountInfoQuery is reachable.
+    // task-002 makes AuthoritativeNonceService fail closed when consensus is
+    // unavailable, so a test that does not stub getAccountInfo would have every
+    // eth_sendRawTransaction rejected with CONSENSUS_NONCE_UNAVAILABLE. The
+    // resolved nonce 0 matches the default mirror ACCOUNT_RES.ethereum_nonce.
+    sdkClientStub.getAccountInfo.resolves({ ethereumNonce: { toNumber: () => 0 } } as any);
     restMock.onGet('network/fees').reply(200, JSON.stringify(DEFAULT_NETWORK_FEES));
     const txPoolServiceWithMockedStorage = new TransactionPoolService(
       {
@@ -138,6 +144,10 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
       sinon.restore();
       sdkClientStub = sinon.createStubInstance(SDKClient);
       sinon.stub(hapiServiceInstance, 'getSDKClient').returns(sdkClientStub);
+      // task-002: consensus-side AccountInfoQuery must be reachable in the test
+      // env or AuthoritativeNonceService fails closed. Nonce 0 matches the
+      // default mirror ACCOUNT_RES.ethereum_nonce used by these tests.
+      sdkClientStub.getAccountInfo.resolves({ ethereumNonce: { toNumber: () => 0 } } as any);
       restMock.onGet(accountEndpoint).reply(200, JSON.stringify(ACCOUNT_RES));
       JSON.stringify(restMock.onGet(receiverAccountEndpoint).reply(200, JSON.stringify(RECEIVER_ACCOUNT_RES)));
       JSON.stringify(restMock.onGet(networkExchangeRateEndpoint).reply(200, JSON.stringify(mockedExchangeRate)));
@@ -743,6 +753,18 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
 
           const saveStub = sinon.stub(txPool, 'saveTransaction').resolves();
           const removeStub = sinon.stub(txPool, 'removeTransaction').resolves();
+          // Stub getPendingCount per-call to simulate the production scenario
+          // where the in-flight tx-count grows as concurrent txs are enqueued.
+          // - Call 1 (firstTx, nonce=0): pending=1 → allowedNonce = 0 + max(0,0) = 0 → accepts 0.
+          // - Call 2 (secondTx, nonce=1): pending=2 → allowedNonce = 0 + max(1,0) = 1 → accepts 1.
+          // Required by the new symmetric NONCE_TOO_HIGH preflight in
+          // precheck.nonce(); without per-call increment one of the two txs
+          // would (correctly) be rejected and this concurrency assertion would fail.
+          const getPendingCountStub = sinon.stub(txPool, 'getPendingCount');
+          getPendingCountStub.onCall(0).resolves(1);
+          getPendingCountStub.onCall(1).resolves(2);
+          // Defensive default for any subsequent invocation (none expected).
+          getPendingCountStub.resolves(2);
 
           const firstTransaction = await signTransaction(transaction);
           const secondTransaction = await signTransaction({ ...transaction, nonce: 1 });
@@ -1170,9 +1192,12 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
           );
           sdkClientStub.submitEthereumTransaction.throws(wrongNonceError);
 
-          // Reset the account mock and set nonce 5 (lower than tx nonce 10)
+          // Reset the account mock and set nonce 5 (lower than tx nonce 10).
+          // task-002: consensus is the authoritative nonce source — stub it to
+          // agree with mirror (these tests model the no-drift case).
           restMock.resetHistory();
           restMock.onGet(accountEndpoint).reply(200, JSON.stringify({ ...ACCOUNT_RES, ethereum_nonce: 5 }));
+          sdkClientStub.getAccountInfo.resolves({ ethereumNonce: { toNumber: () => 5 } } as any);
 
           await expect(ethImpl.sendRawTransaction(signed, requestDetails))
             .to.be.rejectedWith(JsonRpcError)
@@ -1201,9 +1226,11 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
           );
           sdkClientStub.submitEthereumTransaction.throws(wrongNonceError);
 
-          // Reset the account mock and set nonce 8 (higher than tx nonce 3)
+          // Reset the account mock and set nonce 8 (higher than tx nonce 3).
+          // task-002: stub consensus to agree with mirror (no-drift case).
           restMock.resetHistory();
           restMock.onGet(accountEndpoint).reply(200, JSON.stringify({ ...ACCOUNT_RES, ethereum_nonce: 8 }));
+          sdkClientStub.getAccountInfo.resolves({ ethereumNonce: { toNumber: () => 8 } } as any);
 
           await expect(ethImpl.sendRawTransaction(signed, requestDetails))
             .to.be.rejectedWith(JsonRpcError)
@@ -1232,9 +1259,13 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
           );
           sdkClientStub.submitEthereumTransaction.throws(wrongNonceError);
 
-          // Reset the account mock and set same nonce as transaction (cannot determine difference)
+          // Reset the account mock and set same nonce as transaction (cannot determine difference).
+          // task-002: consensus agrees with mirror at 5, so the in-flight tx
+          // (nonce 5) passes preflight and reaches the post-submission
+          // WRONG_NONCE handler — which is what this test exercises.
           restMock.resetHistory();
           restMock.onGet(accountEndpoint).reply(200, JSON.stringify({ ...ACCOUNT_RES, ethereum_nonce: 5 }));
+          sdkClientStub.getAccountInfo.resolves({ ethereumNonce: { toNumber: () => 5 } } as any);
 
           await expect(ethImpl.sendRawTransaction(signed, requestDetails))
             .to.be.rejectedWith(JsonRpcError)
@@ -1279,6 +1310,9 @@ describe('@ethSendRawTransaction eth_sendRawTransaction spec', async function ()
             .replyOnce(200, JSON.stringify({ ...ACCOUNT_RES, ethereum_nonce: 5 }))
             .onGet(accountEndpoint)
             .replyOnce(500);
+          // task-002: consensus agrees with mirror at 5 — the tx (nonce 5)
+          // passes preflight and reaches the post-submission WRONG_NONCE handler.
+          sdkClientStub.getAccountInfo.resolves({ ethereumNonce: { toNumber: () => 5 } } as any);
 
           await expect(ethImpl.sendRawTransaction(signed, requestDetails))
             .to.be.rejectedWith(JsonRpcError)
