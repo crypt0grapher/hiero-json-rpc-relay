@@ -22,6 +22,9 @@ describe('translateRpcErrorToHttpStatus', () => {
       { code: -32602, message: 'Invalid params', expectedStatus: 400 },
       { code: -32601, message: 'Method not found', expectedStatus: 400 },
       { code: -32605, message: 'Rate limit exceeded', expectedStatus: 429 },
+      // task-002 (2026-05-21 wrong-nonce mirror-ahead): CONSENSUS_NONCE_UNAVAILABLE
+      // is a temporary fail-closed error and must map to HTTP 503 so clients retry.
+      { code: -32016, message: 'Consensus nonce temporarily unavailable. Please try again.', expectedStatus: 503 },
       { code: -99999, message: 'Unknown error', expectedStatus: 400 },
     ];
 

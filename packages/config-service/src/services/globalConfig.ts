@@ -79,6 +79,17 @@ export interface ConfigProperty {
  * its type, whether it is required, and its default value.
  */
 const _CONFIG = {
+  AUTHORITATIVE_NONCE_MIRROR_FALLBACK_TTL_MS: {
+    type: 'number',
+    required: false,
+    // Cache TTL (ms) applied to an explicit, compatibility-only mirror-derived
+    // nonce fallback in AuthoritativeNonceService. Bounded tightly (default
+    // 250ms) so any mirror-AHEAD-of-consensus drift expires fast. This TTL is
+    // NEVER used for a `consensus_unavailable` snapshot — that state fails
+    // closed. See task-002 of
+    // 2026-05-21-relay-wrong-nonce-mirror-ahead-of-consensus-divergence.
+    defaultValue: 250,
+  },
   BATCH_REQUESTS_DISALLOWED_METHODS: {
     type: 'strArray',
     required: false,

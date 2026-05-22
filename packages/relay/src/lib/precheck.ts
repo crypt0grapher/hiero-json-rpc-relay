@@ -140,6 +140,18 @@ export class Precheck {
   }> {
     this.gasPrice(parsedTx, networkGasPriceInWeiBars);
     const nonceState = await this.getAccountNonceState(parsedTx, requestDetails);
+
+    // Fail closed: if the consensus-side nonce lookup was unavailable, the
+    // snapshot has no usable `effectiveNonce`. We MUST reject the send before
+    // hapiService.submitEthereumTransaction() runs — submitting against a
+    // mirror-derived (potentially drifted) nonce is exactly the residual leak
+    // this task closes, and it would burn the FRA operator wrapper fee on a
+    // consensus WRONG_NONCE rejection. CONSENSUS_NONCE_UNAVAILABLE is a
+    // temporary error mapped to HTTP 503 + Retry-After: 1; the client retries.
+    if (nonceState.source === 'consensus_unavailable' || nonceState.effectiveNonce == null) {
+      throw predefined.CONSENSUS_NONCE_UNAVAILABLE;
+    }
+
     const mirrorAccountInfo = nonceState.mirrorAccount;
 
     // The current tx has already been saved to the tx-pool before this

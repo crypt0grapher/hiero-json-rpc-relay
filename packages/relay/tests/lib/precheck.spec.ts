@@ -1035,6 +1035,68 @@ describe('Precheck', async function () {
         expect(e).to.eql(predefined.NONCE_TOO_HIGH(parsedTx.nonce, 170));
       }
     });
+
+    // task-002 (2026-05-21 wrong-nonce mirror-ahead): when the consensus-side
+    // nonce lookup is unavailable the snapshot has no usable effectiveNonce.
+    // The send-time stateful precheck MUST fail closed with
+    // CONSENSUS_NONCE_UNAVAILABLE — this runs before TransactionService calls
+    // hapiService.submitEthereumTransaction(), so no EthereumTransaction
+    // reaches consensus and the FRA operator wrapper fee is not burned.
+    it('fails closed with CONSENSUS_NONCE_UNAVAILABLE when the snapshot source is consensus_unavailable', async function () {
+      const wallet = ethers.Wallet.createRandom();
+      const signed = await wallet.signTransaction({ ...defaultTx, from: wallet.address, nonce: 170 });
+      const parsedTx = ethers.Transaction.from(signed);
+
+      authoritativeNonceService.getLatestNonceSnapshot.resolves({
+        consensusNonce: null,
+        effectiveNonce: null,
+        mirrorAccount: {
+          balance: { balance: 1_000_000_000, timestamp: '1654168500.007651338', tokens: [] },
+          ethereum_nonce: 170,
+          evm_address: parsedTx.from,
+        } as any,
+        mirrorNonce: 170,
+        source: 'consensus_unavailable',
+      } as any);
+
+      try {
+        await localPrecheck.validateAccountAndNetworkStateful(parsedTx, defaultGasPrice, requestDetails);
+        expectedError();
+      } catch (e: any) {
+        expect(e).to.eql(predefined.CONSENSUS_NONCE_UNAVAILABLE);
+      }
+
+      // The guard returns before any tx-pool / nonce-bound work runs, so the
+      // wrong-too-high mirror nonce (170) is never used for send-time precheck.
+      expect(localTransactionPoolService.getPendingCount.called).to.be.false;
+    });
+
+    // Defense-in-depth: even a malformed snapshot with source 'consensus' but a
+    // null effectiveNonce must fail closed rather than coerce null into a nonce.
+    it('fails closed when effectiveNonce is null even if source is not consensus_unavailable', async function () {
+      const wallet = ethers.Wallet.createRandom();
+      const signed = await wallet.signTransaction({ ...defaultTx, from: wallet.address, nonce: 5 });
+      const parsedTx = ethers.Transaction.from(signed);
+
+      authoritativeNonceService.getLatestNonceSnapshot.resolves({
+        consensusNonce: null,
+        effectiveNonce: null,
+        mirrorAccount: {
+          balance: { balance: 1_000_000_000, timestamp: '1654168500.007651338', tokens: [] },
+          ethereum_nonce: 5,
+          evm_address: parsedTx.from,
+        } as any,
+        mirrorNonce: 5,
+        source: 'consensus',
+      } as any);
+
+      try {
+        await localPrecheck.validateAccountAndNetworkStateful(parsedTx, defaultGasPrice, requestDetails);
+        expectedError();
+      } catch (e: any) {
+        expect(e).to.eql(predefined.CONSENSUS_NONCE_UNAVAILABLE);
+      }
+    });
   });
 
   describe('IntrinsicGasCost', function () {

@@ -127,6 +127,7 @@ export class DebugImpl implements Debug {
       logger,
       mirrorNodeClient,
       hapiService,
+      registry,
     );
     this.mirrorNodeClient = mirrorNodeClient;
     this.cacheService = cacheService;

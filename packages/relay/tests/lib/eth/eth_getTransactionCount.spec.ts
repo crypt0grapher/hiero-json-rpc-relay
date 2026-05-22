@@ -122,13 +122,36 @@ describe('@ethGetTransactionCount eth_getTransactionCount spec', async function 
     expect(nonce).to.equal(numberTo0x(mockData.account.ethereum_nonce));
   });
 
-  it('should fall back to mirror nonce when consensus lookup fails', async () => {
+  // task-002 (2026-05-21 wrong-nonce mirror-ahead): the relay must NOT silently
+  // fall back to mirror's (potentially drifted) nonce when the consensus gRPC
+  // lookup fails. It fails closed with CONSENSUS_NONCE_UNAVAILABLE — a temporary
+  // error (code -32016) the server maps to HTTP 503 + Retry-After: 1.
+  it('fails closed with CONSENSUS_NONCE_UNAVAILABLE when the consensus lookup fails (latest)', async () => {
     sdkClientStub.getAccountInfo.rejects(new Error('consensus unavailable'));
     restMock.onGet(accountPath).reply(200, JSON.stringify(mockData.account));
 
-    const nonce = await ethImpl.getTransactionCount(MOCK_ACCOUNT_ADDR, 'latest', requestDetails);
-    expect(nonce).to.exist;
-    expect(nonce).to.equal(numberTo0x(mockData.account.ethereum_nonce));
+    const args = [MOCK_ACCOUNT_ADDR, 'latest', requestDetails];
+    await RelayAssertions.assertRejection(
+      predefined.CONSENSUS_NONCE_UNAVAILABLE,
+      ethImpl.getTransactionCount,
+      true,
+      ethImpl,
+      args,
+    );
+  });
+
+  it('fails closed with CONSENSUS_NONCE_UNAVAILABLE when the consensus lookup times out (pending)', async () => {
+    sdkClientStub.getAccountInfo.returns(new Promise(() => {}) as any);
+    restMock.onGet(accountPath).reply(200, JSON.stringify(mockData.account));
+
+    const args = [MOCK_ACCOUNT_ADDR, constants.BLOCK_PENDING, requestDetails];
+    await RelayAssertions.assertRejection(
+      predefined.CONSENSUS_NONCE_UNAVAILABLE,
+      ethImpl.getTransactionCount,
+      true,
+      ethImpl,
+      args,
+    );
   });
 
   it('should return 0x0 nonce for block 0 consideration', async () => {
