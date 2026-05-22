@@ -109,7 +109,7 @@ export default {
   ETH_BLOCK_NUMBER_CACHE_TTL_MS_DEFAULT: 1000,
   ETH_GET_BALANCE_CACHE_TTL_MS_DEFAULT: 1000,
   ETH_GET_TRANSACTION_COUNT_CACHE_TTL: 500,
-  ETH_GET_TRANSACTION_COUNT_CONSENSUS_TIMEOUT_MS: 1000,
+  ETH_GET_TRANSACTION_COUNT_CONSENSUS_TIMEOUT_MS: 5000, // Re-scoped 2026-05-22 per Q1-A decision (issue 2026-05-21-relay-wrong-nonce...): pod-internal TCP to gateway :30211 times out in <3 s; 5 s gives headroom while SDK deadline remains 10 s. See handoff §11 for measurement.
 
   ETH_GET_BLOCK_BY_RESULTS_BATCH_SIZE: 25,
   DEFAULT_SYNTHETIC_LOG_CACHE_TTL: `${CACHE_TTL.ONE_DAY}`,
