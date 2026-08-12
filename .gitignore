@@ -10,3 +10,20 @@ tsconfig.tsbuildinfo
 .DS_Store
 test-results.*.xml
 .standalone
+
+### Local operator tooling (not for this repository)
+.memory-bank/
+.claude/
+.cursor/
+.codex/
+.grok/
+.kimi/
+.kimi-code/
+.opencode/
+CLAUDE.md
+AGENTS.md
+.env
+.env.*
+!.env*.example
+!.env.http.example
+!.env.ws.example

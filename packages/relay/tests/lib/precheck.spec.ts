@@ -734,7 +734,6 @@ describe('Precheck', async function () {
     });
 
     // Regression-locking tests for parent task
-    // ~/goliath/mainnet/.memory-bank/tasks/2026-05-21-relay-wrong-nonce-mirror-ahead-of-consensus-divergence/task-001.
     // `accountNonce` is the highest currently allowed nonce (computed by
     // `validateAccountAndNetworkStateful` as `effectiveNonce + max(pendingCount-1, 0)`),
     // so tx.nonce > accountNonce must be rejected as NONCE_TOO_HIGH before
@@ -920,7 +919,6 @@ describe('Precheck', async function () {
     });
 
     // Regression-locking stateful tests for parent task
-    // ~/goliath/mainnet/.memory-bank/tasks/2026-05-21-relay-wrong-nonce-mirror-ahead-of-consensus-divergence/task-001.
     //
     // The current tx is saved to the pool BEFORE stateful precheck runs, so
     // `pendingCountIncludingCurrent` already counts the in-flight tx. The

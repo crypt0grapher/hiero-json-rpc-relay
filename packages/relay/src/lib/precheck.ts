@@ -161,7 +161,6 @@ export class Precheck {
     // with `Math.max` guarding against the (defensive) zero case so we never
     // hand a value below `effectiveNonce` to `nonce()` and accidentally widen
     // the NONCE_TOO_LOW window. See parent task
-    // ~/goliath/mainnet/.memory-bank/tasks/2026-05-21-relay-wrong-nonce-mirror-ahead-of-consensus-divergence/task-001.
     const pendingTransactions = await this.transactionPoolService.getPendingCount(parsedTx.from!, 1);
     const allowedNonce = nonceState.effectiveNonce + Math.max(pendingTransactions - 1, 0);
     this.nonce(parsedTx, allowedNonce);
