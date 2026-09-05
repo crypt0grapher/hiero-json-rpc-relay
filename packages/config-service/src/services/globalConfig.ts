@@ -716,6 +716,11 @@ const _CONFIG = {
     required: false,
     defaultValue: true,
   },
+  LONG_ZERO_TWIN_POLICY: {
+    type: 'string',
+    required: false,
+    defaultValue: 'off',
+  },
   LOCK_MAX_HOLD_MS: {
     type: 'number',
     required: false,

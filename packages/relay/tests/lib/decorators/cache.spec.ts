@@ -96,6 +96,30 @@ describe('cache decorator', () => {
       expect(cacheService.set.notCalled).to.be.true;
     });
 
+    it('should skip cache read and write when skipCacheForArgs returns true', async () => {
+      const instance = createDecoratedMethod({
+        skipCacheForArgs: (args: unknown[]) => String(args[0] ?? '').startsWith('0x0000'),
+      });
+      cacheService.getAsync.resolves(CACHED_RESULT);
+
+      const result = await instance.testMethod('0x0000abcd', 'latest', requestDetails);
+      expect(result).to.equal(getComputedResult('0x0000abcd', 'latest', requestDetails));
+      expect(cacheService.getAsync.notCalled).to.be.true;
+      expect(cacheService.set.notCalled).to.be.true;
+    });
+
+    it('should still cache when skipCacheForArgs returns false', async () => {
+      const instance = createDecoratedMethod({
+        skipCacheForArgs: () => false,
+      });
+      cacheService.getAsync.resolves(null);
+
+      const result = await instance.testMethod('0x1321', '0x2710', requestDetails);
+      expect(result).to.equal(getComputedResult('0x1321', '0x2710', requestDetails));
+      expect(cacheService.getAsync.calledOnce).to.be.true;
+      expect(cacheService.set.calledOnce).to.be.true;
+    });
+
     it('should use custom TTL if provided', async () => {
       const instance = createDecoratedMethod({ ttl: 555 });
       cacheService.getAsync.resolves(null);

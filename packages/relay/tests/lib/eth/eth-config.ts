@@ -754,6 +754,57 @@ export const MOCK_ACCOUNT_WITHOUT_TRANSACTIONS = {
   },
 };
 
+export const LONG_ZERO_TWIN_ADDRESS = '0x000000000000000000000000000000000000043b';
+export const TWIN_CANONICAL_ADDRESS = '0x5d5d82b6042e2be8c00526d7167582ea2b324498';
+export const LONG_ZERO_CONTRACT_TWIN_ADDRESS = '0x000000000000000000000000000000000000041b';
+export const CONTRACT_TWIN_CANONICAL_ADDRESS = '0xa553a603e2f84fea6c1fc225e0945fe176c72f74';
+export const LONG_ZERO_KEEP_98_ADDRESS = '0x0000000000000000000000000000000000000062';
+export const LONG_ZERO_ENTRYPOINT_ADDRESS = '0x000000000000000000000000000000000000052C';
+export const ENTRYPOINT_CANONICAL_ADDRESS = '0x5ff137d0b0fdcd49dca30c7cf57e578a026d2789';
+export const ENTITY_ZERO_ADDRESS = '0x' + '0'.repeat(40);
+
+export const MOCK_ACCOUNT_TWIN = {
+  account: '0.0.1083',
+  balance: {
+    balance: DEF_BALANCE,
+  },
+  evm_address: TWIN_CANONICAL_ADDRESS,
+};
+
+export const MOCK_CONTRACT_TWIN = {
+  account: '0.0.1051',
+  balance: {
+    balance: DEF_BALANCE,
+  },
+  evm_address: CONTRACT_TWIN_CANONICAL_ADDRESS,
+};
+
+export const MOCK_ACCOUNT_KEEP_LIST = {
+  ...MOCK_ACCOUNT_WITHOUT_TRANSACTIONS,
+  balance: {
+    balance: DEF_BALANCE,
+    timestamp: '1722499895.340270625',
+    tokens: [],
+  },
+  evm_address: LONG_ZERO_ADDRESS,
+};
+
+export const MOCK_ACCOUNT_KEEP_98 = {
+  account: '0.0.98',
+  balance: {
+    balance: DEF_BALANCE,
+  },
+  evm_address: LONG_ZERO_KEEP_98_ADDRESS,
+};
+
+export const MOCK_ACCOUNT_ENTRYPOINT_TWIN = {
+  account: '0.0.1324',
+  balance: {
+    balance: DEF_BALANCE,
+  },
+  evm_address: ENTRYPOINT_CANONICAL_ADDRESS,
+};
+
 //responce objects
 export const MOCK_BLOCK_NUMBER_1000_RES = {
   blocks: [
