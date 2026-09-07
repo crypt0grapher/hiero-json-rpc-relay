@@ -24,6 +24,11 @@ interface CacheOptions {
   skipParams?: CacheSingleParam[];
   skipNamedParams?: CacheNamedParams[];
   ttl?: number;
+  /**
+   * When true, skip both the cache read (`getAsync`) and the cache write (`set`).
+   * Used so long-zero `eth_getBalance` inputs never land in Redis in any policy mode.
+   */
+  skipCacheForArgs?: (args: unknown[]) => boolean;
 }
 
 /**
@@ -48,8 +53,13 @@ export function cache<T>(options: CacheOptions = {}, cacheServiceProp: keyof T =
     const methodName = String(context.name);
 
     return async function (this: T, ...args: unknown[]) {
-      const cacheKey = generateCacheKey(methodName, args);
       const cacheService = this[cacheServiceProp] as ICacheClient;
+
+      if (options.skipCacheForArgs?.(args)) {
+        return await target.apply(this, args);
+      }
+
+      const cacheKey = generateCacheKey(methodName, args);
 
       const cachedResponse = await cacheService.getAsync(cacheKey, methodName);
       if (cachedResponse) return cachedResponse;

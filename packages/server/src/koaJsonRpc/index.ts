@@ -15,6 +15,7 @@ import { translateRpcErrorToHttpStatus } from './lib/httpErrorMapper';
 import { IJsonRpcRequest } from './lib/IJsonRpcRequest';
 import { spec } from './lib/RpcError';
 import { type IJsonRpcResponse, jsonRespError, jsonRespResult } from './lib/RpcResponse';
+import { readUserAgentHeader } from './lib/userAgent';
 import {
   getBatchRequestsEnabled,
   getBatchRequestsMaxSize,
@@ -101,7 +102,7 @@ export default class KoaJsonRpc {
     } else if (!this.isValidJsonRpcRequest(body)) {
       response = jsonRespError(body.id, spec.InvalidRequest, requestId);
     } else {
-      response = await this.getRequestResult(body, ctx.ip, requestId);
+      response = await this.getRequestResult(body, ctx.ip, requestId, readUserAgentHeader(ctx.headers));
       ctx.state.methodName = body.method;
     }
 
@@ -155,7 +156,7 @@ export default class KoaJsonRpc {
         return jsonRespError(item.id, spec.BatchRequestsMethodNotPermitted(item.method), requestId);
 
       const startTime = Date.now();
-      return this.getRequestResult(item, ctx.ip, requestId).then((res) => {
+      return this.getRequestResult(item, ctx.ip, requestId, readUserAgentHeader(ctx.headers)).then((res) => {
         const ms = Date.now() - startTime;
         const code = 'error' in res ? res.error.code : 200;
         this.methodResponseHistogram?.labels(item.method, `${code}`, 'true').observe(ms);
@@ -170,9 +171,14 @@ export default class KoaJsonRpc {
     ctx.state.status = responseSuccessStatusCode;
   }
 
-  async getRequestResult(request: IJsonRpcRequest, ipAddress: string, requestId: string): Promise<IJsonRpcResponse> {
+  async getRequestResult(
+    request: IJsonRpcRequest,
+    ipAddress: string,
+    requestId: string,
+    userAgent?: string,
+  ): Promise<IJsonRpcResponse> {
     try {
-      const requestDetails = new RequestDetails({ requestId, ipAddress });
+      const requestDetails = new RequestDetails({ requestId, ipAddress, userAgent });
       // check rate limit for method and ip
       const methodTotalLimit = this.methodConfig[request.method]?.total ?? this.defaultRateLimit;
       if (await this.rateLimiter.shouldRateLimit(ipAddress, request.method, methodTotalLimit, requestDetails)) {

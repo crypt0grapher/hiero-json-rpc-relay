@@ -20,12 +20,18 @@ export class RequestDetails {
   connectionId?: string;
 
   /**
+   * Inbound HTTP User-Agent (optional). Used only for bounded metric labels.
+   */
+  userAgent?: string;
+
+  /**
    * Creates an instance of RequestDetails.
    * @param details - The details of the request.
    */
-  constructor(details: { requestId: string; ipAddress: string; connectionId?: string }) {
+  constructor(details: { requestId: string; ipAddress: string; connectionId?: string; userAgent?: string }) {
     this.requestId = details.requestId;
     this.ipAddress = details.ipAddress;
     this.connectionId = details.connectionId;
+    this.userAgent = details.userAgent;
   }
 }

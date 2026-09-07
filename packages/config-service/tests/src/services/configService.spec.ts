@@ -94,6 +94,15 @@ describe('ConfigService tests', async function () {
     expect(res).to.equal(expectedDefaultValue);
   });
 
+  it('LONG_ZERO_TWIN_POLICY defaults to off and is a string', () => {
+    expect(GlobalConfig.ENTRIES.LONG_ZERO_TWIN_POLICY.type).to.equal('string');
+    expect(GlobalConfig.ENTRIES.LONG_ZERO_TWIN_POLICY.required).to.equal(false);
+    expect(GlobalConfig.ENTRIES.LONG_ZERO_TWIN_POLICY.defaultValue).to.equal('off');
+    if (process.env.LONG_ZERO_TWIN_POLICY === undefined) {
+      expect(ConfigService.get('LONG_ZERO_TWIN_POLICY')).to.equal('off');
+    }
+  });
+
   it('should infer the explicit type for configuration which is either required or has a valid defaultValue', () => {
     const targetKeys = [
       'FILE_APPEND_MAX_CHUNKS',

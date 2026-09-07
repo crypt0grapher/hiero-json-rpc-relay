@@ -179,6 +179,7 @@ export class EthImpl implements Eth {
       mirrorNodeClient,
       transactionPoolService,
       authoritativeNonceService,
+      registry,
     );
   }
 
@@ -713,6 +714,7 @@ export class EthImpl implements Eth {
   })
   @cache({
     skipParams: [{ index: '1', value: constants.NON_CACHABLE_BLOCK_PARAMS }],
+    skipCacheForArgs: (args) => constants.LONG_ZERO_ADDRESS_REGEX.test(String(args[0] ?? '')),
   })
   async getBalance(account: string, blockNumberOrTagOrHash: string, requestDetails: RequestDetails): Promise<string> {
     return this.accountService.getBalance(account, blockNumberOrTagOrHash, requestDetails);

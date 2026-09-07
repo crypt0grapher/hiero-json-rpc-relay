@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { ConfigService } from '@hashgraph/json-rpc-config-service/dist/services';
 import { Logger } from 'pino';
+import { Counter, Gauge, Registry } from 'prom-client';
 
-import { numberTo0x, parseNumericEnvVar } from '../../../../formatters';
+import { numberTo0x, parseNumericEnvVar, prepend0x } from '../../../../formatters';
 import { MirrorNodeClient } from '../../../clients';
 import type { ICacheClient } from '../../../clients/cache/ICacheClient';
 import constants from '../../../constants';
@@ -13,6 +15,25 @@ import { TransactionPoolService } from '../../transactionPoolService/transaction
 import { ICommonService } from '../ethCommonService/ICommonService';
 import { AuthoritativeNonceService } from './AuthoritativeNonceService';
 import { IAccountService } from './IAccountService';
+
+type LongZeroTwinPolicyMode = (typeof constants.LONG_ZERO_TWIN_POLICY_MODES)[number];
+type LongZeroTwinUaClass = 'mint' | 'onyx-ops' | 'canary' | 'other';
+
+function uaClassOf(userAgent?: string): LongZeroTwinUaClass {
+  if (typeof userAgent !== 'string' || userAgent.length === 0) {
+    return 'other';
+  }
+  if (/^mint\//.test(userAgent)) {
+    return 'mint';
+  }
+  if (userAgent === 'onyx-ops') {
+    return 'onyx-ops';
+  }
+  if (userAgent === constants.LONG_ZERO_TWIN_CANARY_UA) {
+    return 'canary';
+  }
+  return 'other';
+}
 
 export class AccountService implements IAccountService {
   /**
@@ -86,11 +107,35 @@ export class AccountService implements IAccountService {
   private readonly authoritativeNonceService: AuthoritativeNonceService;
 
   /**
+   * Long-zero twin classification counter. Labels: method, decision, ua_class.
+   *
+   * @private
+   */
+  private readonly longZeroTwinCounter: Counter;
+
+  /**
+   * Currently resolved LONG_ZERO_TWIN_POLICY mode (one-hot gauge).
+   *
+   * @private
+   */
+  private readonly longZeroTwinPolicyGauge: Gauge;
+
+  /**
+   * Emit at most one warn when the flag value is not a known mode.
+   *
+   * @private
+   */
+  private invalidPolicyWarned = false;
+
+  /**
    * @constructor
    * @param cacheService
    * @param common
    * @param logger
    * @param mirrorNodeClient
+   * @param transactionPoolService
+   * @param authoritativeNonceService
+   * @param register
    */
   constructor(
     cacheService: ICacheClient,
@@ -99,6 +144,7 @@ export class AccountService implements IAccountService {
     mirrorNodeClient: MirrorNodeClient,
     transactionPoolService: TransactionPoolService,
     authoritativeNonceService: AuthoritativeNonceService,
+    register: Registry,
   ) {
     this.cacheService = cacheService;
     this.common = common;
@@ -106,6 +152,9 @@ export class AccountService implements IAccountService {
     this.mirrorNodeClient = mirrorNodeClient;
     this.transactionPoolService = transactionPoolService;
     this.authoritativeNonceService = authoritativeNonceService;
+    this.longZeroTwinCounter = this.initLongZeroTwinCounter(register);
+    this.longZeroTwinPolicyGauge = this.initLongZeroTwinPolicyGauge(register);
+    this.setPolicyGauge(this.resolveLongZeroTwinPolicy());
   }
 
   /**
@@ -121,6 +170,33 @@ export class AccountService implements IAccountService {
     blockNumberOrTagOrHash: string,
     requestDetails: RequestDetails,
   ): Promise<string> {
+    const policy = this.resolveLongZeroTwinPolicy();
+    if (policy !== 'off') {
+      const twin = await this.findLongZeroCanonicalTwin(account, requestDetails);
+      if (twin) {
+        const uaClass = uaClassOf(requestDetails.userAgent);
+        if (policy === 'balance') {
+          this.logger.info(
+            `${requestDetails.requestId} Suppressing long-zero twin eth_getBalance for ${account} (canonical ${twin})`,
+          );
+          this.longZeroTwinCounter.inc({
+            method: 'eth_getBalance',
+            decision: 'suppressed',
+            ua_class: uaClass,
+          });
+          return constants.ZERO_HEX;
+        }
+        this.logger.info(
+          `${requestDetails.requestId} Would suppress long-zero twin eth_getBalance for ${account} (canonical ${twin})`,
+        );
+        this.longZeroTwinCounter.inc({
+          method: 'eth_getBalance',
+          decision: 'would_suppress',
+          ua_class: uaClass,
+        });
+      }
+    }
+
     let latestBlock: LatestBlockNumberTimestamp | null | undefined;
     // this check is required, because some tools like Metamask pass for parameter latest block, with a number (ex 0x30ea)
     // tolerance is needed, because there is a small delay between requesting latest block from blockNumber and passing it here
@@ -537,5 +613,75 @@ export class AccountService implements IAccountService {
 
     // note the mirror node may be a partial one, in which case there may be a valid block with number greater 1.
     throw predefined.INTERNAL_ERROR(`Partial mirror node encountered, earliest block number is ${block.number}`);
+  }
+
+  private resolveLongZeroTwinPolicy(): LongZeroTwinPolicyMode {
+    const raw = ConfigService.get('LONG_ZERO_TWIN_POLICY');
+    const mode = typeof raw === 'string' ? raw : String(raw ?? '');
+    if ((constants.LONG_ZERO_TWIN_POLICY_MODES as readonly string[]).includes(mode)) {
+      this.setPolicyGauge(mode as LongZeroTwinPolicyMode);
+      return mode as LongZeroTwinPolicyMode;
+    }
+    if (!this.invalidPolicyWarned) {
+      this.logger.warn(`Invalid LONG_ZERO_TWIN_POLICY=${JSON.stringify(raw)}; treating as off`);
+      this.invalidPolicyWarned = true;
+    }
+    this.setPolicyGauge('off');
+    return 'off';
+  }
+
+  private setPolicyGauge(mode: LongZeroTwinPolicyMode): void {
+    for (const candidate of constants.LONG_ZERO_TWIN_POLICY_MODES) {
+      this.longZeroTwinPolicyGauge.set({ mode: candidate }, candidate === mode ? 1 : 0);
+    }
+  }
+
+  private async findLongZeroCanonicalTwin(account: string, requestDetails: RequestDetails): Promise<string | null> {
+    if (!constants.LONG_ZERO_ADDRESS_REGEX.test(account) || BigInt(account) === BigInt(0)) {
+      return null;
+    }
+    try {
+      const acct = await this.mirrorNodeClient.getAccount(account, requestDetails);
+      const evm = acct?.evm_address;
+      const evm0x = typeof evm === 'string' ? prepend0x(evm) : '';
+      if (/^0x[0-9a-f]{40}$/i.test(evm0x) && evm0x.toLowerCase() !== account.toLowerCase()) {
+        return evm0x;
+      }
+      this.longZeroTwinCounter.inc({
+        method: 'eth_getBalance',
+        decision: acct && /^0x[0-9a-f]{40}$/i.test(evm0x) ? 'keep_passthrough' : 'unresolved',
+        ua_class: uaClassOf(requestDetails.userAgent),
+      });
+      return null;
+    } catch {
+      this.longZeroTwinCounter.inc({
+        method: 'eth_getBalance',
+        decision: 'unresolved',
+        ua_class: uaClassOf(requestDetails.userAgent),
+      });
+      return null;
+    }
+  }
+
+  private initLongZeroTwinCounter(register: Registry): Counter {
+    const metricName = 'rpc_relay_long_zero_twin_total';
+    register.removeSingleMetric(metricName);
+    return new Counter({
+      name: metricName,
+      help: 'Long-zero twin eth_getBalance classifications',
+      labelNames: ['method', 'decision', 'ua_class'],
+      registers: [register],
+    });
+  }
+
+  private initLongZeroTwinPolicyGauge(register: Registry): Gauge {
+    const metricName = 'rpc_relay_long_zero_twin_policy_mode';
+    register.removeSingleMetric(metricName);
+    return new Gauge({
+      name: metricName,
+      help: 'Currently resolved LONG_ZERO_TWIN_POLICY mode (one-hot)',
+      labelNames: ['mode'],
+      registers: [register],
+    });
   }
 }

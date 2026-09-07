@@ -273,4 +273,12 @@ export default {
   ETH_GET_TRANSACTION_RECEIPT: 'eth_GetTransactionReceipt',
   ETH_SEND_RAW_TRANSACTION: 'eth_sendRawTransaction',
   NON_CACHABLE_BLOCK_PARAMS: 'latest|pending|finalized|safe',
+
+  /**
+   * Hedera long-zero EVM address: 24 leading zero bytes + 8-byte entity id.
+   * Also matches entity 0 (`0x0{40}`); callers must exclude that with `BigInt(account) === BigInt(0)`.
+   */
+  LONG_ZERO_ADDRESS_REGEX: /^0x0{24}[0-9a-f]{16}$/i,
+  LONG_ZERO_TWIN_POLICY_MODES: ['off', 'observe', 'balance'] as const,
+  LONG_ZERO_TWIN_CANARY_UA: 'onyx-lz-canary',
 };
