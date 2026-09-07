@@ -3,6 +3,7 @@
 import { ConfigService } from '@hashgraph/json-rpc-config-service/dist/services';
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import JSONBigInt from 'json-bigint';
 import sinon from 'sinon';
 
 import { ConfigServiceTestHelper } from '../../../../config-service/tests/configServiceTestHelper';
@@ -721,6 +722,121 @@ describe('@ethGetBalance using MirrorNode', async function () {
     });
   });
 
+  describe('recent historical balance integer precision', () => {
+    // Keep large fixture integers as decimal text until the real mirror parser reads them.
+    const observedBalance = '4304292742935231650';
+    const blockTimestamp = '1651560900.060890950';
+    const accountUrl = `accounts/${CONTRACT_ADDRESS_1}?limit=100`;
+    const nextPage = `/api/v1/accounts/${CONTRACT_ADDRESS_1}?limit=100&timestamp=lt:1651560901.060890950`;
+    const transaction = (amounts: string[], timestamp = blockTimestamp) =>
+      `{"consensus_timestamp":"${timestamp}","transfers":[${amounts
+        .map((amount) => `{"account":"${CONTRACT_ID_1}","amount":${amount},"is_approval":false}`)
+        .join(',')}]}`;
+    const accountResponse = (transactions: string[], next: string | null = null, balance = observedBalance) =>
+      `{"account":"${CONTRACT_ID_1}","balance":{"balance":${balance}},"transactions":[${transactions.join(',')}],"links":{"next":${JSON.stringify(next)}}}`;
+
+    beforeEach(() => {
+      restMock.onGet(BLOCKS_LIMIT_ORDER_URL).reply(
+        200,
+        JSON.stringify({
+          blocks: [{ ...DEFAULT_BLOCK, number: 4, timestamp: { from: '1651561000', to: '1651561001' } }],
+        }),
+      );
+      restMock.onGet('blocks/2').reply(
+        200,
+        JSON.stringify({
+          ...DEFAULT_BLOCK,
+          number: 2,
+          timestamp: { from: '1651560899.060890950', to: blockTimestamp },
+        }),
+      );
+    });
+
+    it('preserves the exact observed 4304292742935231650 tinybar balance with empty transfers', async () => {
+      const raw = accountResponse([]);
+      expect(typeof JSONBigInt.parse(raw).balance.balance).to.equal('object');
+      restMock.onGet(`accounts/${CONTRACT_ADDRESS_1}?transactions=false`).reply(200, raw);
+      restMock.onGet(accountUrl).reply(200, raw);
+
+      const latest = await ethImpl.getBalance(CONTRACT_ADDRESS_1, 'latest', requestDetails);
+      const historical = await ethImpl.getBalance(CONTRACT_ADDRESS_1, '0x2', requestDetails);
+      expect(latest).to.equal('0x8b14466b73b541c580f64800');
+      expect(historical).to.equal(latest);
+    });
+
+    for (const amount of ['9007199254740993', '-9007199254740993']) {
+      it(`preserves a signed transfer of ${amount} tinybars above Number.MAX_SAFE_INTEGER`, async () => {
+        restMock.onGet(accountUrl).reply(200, accountResponse([transaction([amount])]));
+        const historical = await ethImpl.getBalance(CONTRACT_ADDRESS_1, '0x2', requestDetails);
+        expect(historical).to.equal(
+          numberTo0x((BigInt(observedBalance) - BigInt(amount)) * TINYBAR_TO_WEIBAR_COEF_BIGINT),
+        );
+      });
+    }
+
+    it('sums mixed parser Number and BigNumber positive/negative transfers without coercion', async () => {
+      const raw = transaction(['9007199254740993', '-9007199254740995', '7', '-2']);
+      const parsed = JSONBigInt.parse(raw);
+      expect(typeof parsed.transfers[0].amount).to.equal('object');
+      expect(typeof parsed.transfers[2].amount).to.equal('number');
+      const adjustment = ethImpl['accountService']['getBalanceAtBlockTimestamp'](
+        CONTRACT_ID_1,
+        [parsed],
+        Number(blockTimestamp),
+      );
+      expect(adjustment).to.equal(BigInt(3));
+
+      restMock.onGet(accountUrl).reply(200, accountResponse([raw]));
+      expect(await ethImpl.getBalance(CONTRACT_ADDRESS_1, '0x2', requestDetails)).to.equal(
+        numberTo0x((BigInt(observedBalance) - BigInt(3)) * TINYBAR_TO_WEIBAR_COEF_BIGINT),
+      );
+    });
+
+    it('preserves approval, account and timestamp filtering for large transfers', async () => {
+      const excluded = `{"consensus_timestamp":"${blockTimestamp}","transfers":[
+        {"account":"${CONTRACT_ID_1}","amount":9007199254740993,"is_approval":true},
+        {"account":"0.0.98","amount":-9007199254740995,"is_approval":false}]}`;
+      restMock
+        .onGet(accountUrl)
+        .reply(
+          200,
+          accountResponse([excluded, transaction(['9007199254740993'], '1651560899.060890950'), transaction(['5'])]),
+        );
+      expect(await ethImpl.getBalance(CONTRACT_ADDRESS_1, '0x2', requestDetails)).to.equal(
+        numberTo0x((BigInt(observedBalance) - BigInt(5)) * TINYBAR_TO_WEIBAR_COEF_BIGINT),
+      );
+    });
+
+    it('sums large transfers across the existing historical pagination path', async () => {
+      restMock.onGet(accountUrl).reply(200, accountResponse([transaction(['9007199254740993'])], nextPage));
+      restMock
+        .onGet(nextPage.replace('/api/v1/', ''))
+        .reply(
+          200,
+          accountResponse([
+            transaction(['-9007199254740995', '7']),
+            transaction(['9007199254740993'], '1651560899.060890950'),
+          ]),
+        );
+      expect(await ethImpl.getBalance(CONTRACT_ADDRESS_1, '0x2', requestDetails)).to.equal(
+        numberTo0x((BigInt(observedBalance) - BigInt(5)) * TINYBAR_TO_WEIBAR_COEF_BIGINT),
+      );
+      expect(restMock.history.get.filter((request) => request.url === nextPage.replace('/api/v1/', ''))).to.have.length(
+        1,
+      );
+    });
+
+    it('returns bigint zero for an empty transfer history and preserves small Number balances', async () => {
+      expect(
+        ethImpl['accountService']['getBalanceAtBlockTimestamp'](CONTRACT_ID_1, [], Number(blockTimestamp)),
+      ).to.equal(BigInt(0));
+      restMock.onGet(accountUrl).reply(200, accountResponse([], null, '123'));
+      expect(await ethImpl.getBalance(CONTRACT_ADDRESS_1, '0x2', requestDetails)).to.equal(
+        numberTo0x(BigInt(123) * TINYBAR_TO_WEIBAR_COEF_BIGINT),
+      );
+    });
+  });
+
   describe('Calculate balance at block timestamp via getBalanceAtBlockTimestamp', async function () {
     const timestamp1 = 1651550386;
 
@@ -736,7 +852,7 @@ describe('@ethGetBalance using MirrorNode', async function () {
         Number(`${timestamp1}.060890950`),
       );
       // Transactions up to the block timestamp.to timestamp will be subsctracted from the current balance to get the block's balance.
-      expect(resultingUpdate).to.equal(+150);
+      expect(resultingUpdate).to.equal(BigInt(150));
     });
 
     it('Given a blockNumber, return the account balance at that blocknumber, with transactions that credit the account balance', async () => {
@@ -751,7 +867,7 @@ describe('@ethGetBalance using MirrorNode', async function () {
         Number(`${timestamp1}.060890950`),
       );
       // Transactions up to the block timestamp.to timestamp will be subsctracted from the current balance to get the block's balance.
-      expect(resultingUpdate).to.equal(-150);
+      expect(resultingUpdate).to.equal(BigInt(-150));
     });
 
     it('Given a blockNumber, return the account balance at that blocknumber, with transactions that debit and credit the account balance', async () => {
@@ -766,7 +882,7 @@ describe('@ethGetBalance using MirrorNode', async function () {
         Number(`${timestamp1}.060890950`),
       );
       // Transactions up to the block timestamp.to timestamp will be subsctracted from the current balance to get the block's balance.
-      expect(resultingUpdate).to.equal(+50);
+      expect(resultingUpdate).to.equal(BigInt(50));
     });
 
     it('Given a blockNumber, return the account balance at that blocknumber, with transactions that debit, credit, and debit the account balance', async () => {
@@ -782,7 +898,7 @@ describe('@ethGetBalance using MirrorNode', async function () {
         Number(`${timestamp1}.060890950`),
       );
       // Transactions up to the block timestamp.to timestamp will be subsctracted from the current balance to get the block's balance.
-      expect(resultingUpdate).to.equal(+70);
+      expect(resultingUpdate).to.equal(BigInt(70));
     });
   });
 

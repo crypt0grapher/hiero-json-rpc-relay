@@ -345,15 +345,17 @@ export class AccountService implements IAccountService {
     }
     // The block is from the last 15 minutes, therefore the historical balance hasn't been imported in the Mirror Node yet
     else {
-      let currentBalance = 0;
-      let balanceFromTxs = 0;
+      let currentBalance = BigInt(0);
+      let balanceFromTxs = BigInt(0);
       mirrorAccount = await this.mirrorNodeClient.getAccount(account, requestDetails, {
         limit: constants.MIRROR_NODE_QUERY_LIMIT,
         transactions: true,
       });
       if (mirrorAccount) {
         if (mirrorAccount.balance) {
-          currentBalance = mirrorAccount.balance.balance;
+          // Mirror JSON parsing preserves int64 balances as BigNumber values.
+          // Convert before arithmetic to avoid implicit Number precision loss.
+          currentBalance = BigInt(mirrorAccount.balance.balance);
         }
 
         // The balance in the account is real time, so we simply subtract the transactions to the block.timestamp.to to get a block relevant balance.
@@ -372,7 +374,7 @@ export class AccountService implements IAccountService {
         );
 
         balanceFound = true;
-        weibars = BigInt(currentBalance - balanceFromTxs) * BigInt(constants.TINYBAR_TO_WEIBAR_COEF);
+        weibars = (currentBalance - balanceFromTxs) * BigInt(constants.TINYBAR_TO_WEIBAR_COEF);
       }
     }
 
@@ -461,7 +463,7 @@ export class AccountService implements IAccountService {
    * @param blockTimestamp
    * @private
    */
-  private getBalanceAtBlockTimestamp(account: string, transactions: any[], blockTimestamp: number) {
+  private getBalanceAtBlockTimestamp(account: string, transactions: any[], blockTimestamp: number): bigint {
     return transactions
       .filter((transaction) => {
         return transaction.consensus_timestamp >= blockTimestamp;
@@ -472,11 +474,11 @@ export class AccountService implements IAccountService {
         });
       })
       .map((transfer) => {
-        return transfer.amount;
+        return BigInt(transfer.amount);
       })
       .reduce((total, amount) => {
         return total + amount;
-      }, 0);
+      }, BigInt(0));
   }
 
   /**
