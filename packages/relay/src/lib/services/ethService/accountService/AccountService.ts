@@ -457,16 +457,25 @@ export class AccountService implements IAccountService {
   }
 
   /**
-   * Returns the difference between the balance of the account and the transactions summed up to the block number queried.
+   * Sums transfers strictly after the block's inclusive consensus end so they can be removed from the current balance.
    * @param account
    * @param transactions
    * @param blockTimestamp
    * @private
    */
-  private getBalanceAtBlockTimestamp(account: string, transactions: any[], blockTimestamp: number): bigint {
+  private getBalanceAtBlockTimestamp(account: string, transactions: any[], blockTimestamp: string): bigint {
+    const toNanoseconds = (timestamp: string): bigint => {
+      const match = typeof timestamp === 'string' ? /^(\d{1,10})(?:\.(\d{1,9}))?$/.exec(timestamp) : null;
+      if (!match) {
+        throw new Error('Invalid consensus timestamp');
+      }
+      return BigInt(match[1]) * BigInt(1_000_000_000) + BigInt((match[2] ?? '').padEnd(9, '0'));
+    };
+    const blockTimestampNs = toNanoseconds(blockTimestamp);
+
     return transactions
       .filter((transaction) => {
-        return transaction.consensus_timestamp >= blockTimestamp;
+        return toNanoseconds(transaction.consensus_timestamp) > blockTimestampNs;
       })
       .flatMap((transaction) => {
         return transaction.transfers.filter((transfer) => {

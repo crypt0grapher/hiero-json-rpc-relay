@@ -726,9 +726,10 @@ describe('@ethGetBalance using MirrorNode', async function () {
     // Keep large fixture integers as decimal text until the real mirror parser reads them.
     const observedBalance = '4304292742935231650';
     const blockTimestamp = '1651560900.060890950';
+    const afterBlockTimestamp = '1651560900.060890951';
     const accountUrl = `accounts/${CONTRACT_ADDRESS_1}?limit=100`;
     const nextPage = `/api/v1/accounts/${CONTRACT_ADDRESS_1}?limit=100&timestamp=lt:1651560901.060890950`;
-    const transaction = (amounts: string[], timestamp = blockTimestamp) =>
+    const transaction = (amounts: string[], timestamp = afterBlockTimestamp) =>
       `{"consensus_timestamp":"${timestamp}","transfers":[${amounts
         .map((amount) => `{"account":"${CONTRACT_ID_1}","amount":${amount},"is_approval":false}`)
         .join(',')}]}`;
@@ -782,7 +783,7 @@ describe('@ethGetBalance using MirrorNode', async function () {
       const adjustment = ethImpl['accountService']['getBalanceAtBlockTimestamp'](
         CONTRACT_ID_1,
         [parsed],
-        Number(blockTimestamp),
+        blockTimestamp,
       );
       expect(adjustment).to.equal(BigInt(3));
 
@@ -793,7 +794,7 @@ describe('@ethGetBalance using MirrorNode', async function () {
     });
 
     it('preserves approval, account and timestamp filtering for large transfers', async () => {
-      const excluded = `{"consensus_timestamp":"${blockTimestamp}","transfers":[
+      const excluded = `{"consensus_timestamp":"${afterBlockTimestamp}","transfers":[
         {"account":"${CONTRACT_ID_1}","amount":9007199254740993,"is_approval":true},
         {"account":"0.0.98","amount":-9007199254740995,"is_approval":false}]}`;
       restMock
@@ -827,13 +828,68 @@ describe('@ethGetBalance using MirrorNode', async function () {
     });
 
     it('returns bigint zero for an empty transfer history and preserves small Number balances', async () => {
-      expect(
-        ethImpl['accountService']['getBalanceAtBlockTimestamp'](CONTRACT_ID_1, [], Number(blockTimestamp)),
-      ).to.equal(BigInt(0));
+      expect(ethImpl['accountService']['getBalanceAtBlockTimestamp'](CONTRACT_ID_1, [], blockTimestamp)).to.equal(
+        BigInt(0),
+      );
       restMock.onGet(accountUrl).reply(200, accountResponse([], null, '123'));
       expect(await ethImpl.getBalance(CONTRACT_ADDRESS_1, '0x2', requestDetails)).to.equal(
         numberTo0x(BigInt(123) * TINYBAR_TO_WEIBAR_COEF_BIGINT),
       );
+    });
+  });
+
+  describe('inclusive recent historical block boundary', () => {
+    const cutoff = '1788825000.123456789';
+    const transfer = (timestamp: string, amount: string) =>
+      `{"consensus_timestamp":"${timestamp}","transfers":[{"account":"${CONTRACT_ID_1}","amount":${amount},"is_approval":false}]}`;
+    const rewind = (transactions: string[], timestamp = cutoff) =>
+      ethImpl['accountService']['getBalanceAtBlockTimestamp'](
+        CONTRACT_ID_1,
+        JSONBigInt.parse(`[${transactions.join(',')}]`),
+        timestamp,
+      );
+
+    it('rewinds only transactions strictly after the inclusive end, preserving one-nanosecond ordering', () => {
+      expect(
+        rewind([transfer('1788825000.123456788', '1'), transfer(cutoff, '2'), transfer('1788825000.123456790', '4')]),
+      ).to.equal(BigInt(4));
+    });
+
+    for (const amount of ['9007199254740993', '-9007199254740993']) {
+      it(`keeps the signed int64 transfer ${amount} at block end and rewinds it one nanosecond later`, () => {
+        expect(rewind([transfer(cutoff, amount)])).to.equal(BigInt(0));
+        expect(rewind([transfer('1788825000.123456790', amount)])).to.equal(BigInt(amount));
+      });
+    }
+
+    it('normalizes equivalent fractional timestamps without converting to Number', () => {
+      expect(rewind([transfer('1788825000.100000000', '2')], '1788825000.1')).to.equal(BigInt(0));
+      expect(rewind([transfer('1788825000.100000001', '4')], '1788825000.1')).to.equal(BigInt(4));
+    });
+
+    it('rejects a Number cutoff that has already lost its nanoseconds', () => {
+      expect(() => rewind([transfer(cutoff, '2')], Number(cutoff) as any)).to.throw();
+    });
+
+    it('keeps the native-2 debit at the actual one-transaction block end', async () => {
+      const nativeTwo = '0x0000000000000000000000000000000000000002';
+      const blockEnd = '1788828472.669264000';
+      restMock.onGet(BLOCKS_LIMIT_ORDER_URL).reply(
+        200,
+        JSON.stringify({
+          blocks: [{ ...DEFAULT_BLOCK, number: 5887056, timestamp: { from: '1788828495', to: '1788828496' } }],
+        }),
+      );
+      restMock
+        .onGet('blocks/5887052')
+        .reply(200, JSON.stringify({ ...DEFAULT_BLOCK, number: 5887052, timestamp: { from: blockEnd, to: blockEnd } }));
+      restMock.onGet(`accounts/${nativeTwo}?limit=100`).reply(
+        200,
+        `{"account":"0.0.2","balance":{"balance":2402686580865963492},"transactions":[
+          {"consensus_timestamp":"${blockEnd}","transfers":[{"account":"0.0.2","amount":-1,"is_approval":false}]}],
+          "links":{"next":null}}`,
+      );
+      expect(await ethImpl.getBalance(nativeTwo, '0x59d44c', requestDetails)).to.equal('0x4da28ebd636924eca84b1000');
     });
   });
 
@@ -849,9 +905,9 @@ describe('@ethGetBalance using MirrorNode', async function () {
       const resultingUpdate = ethImpl['accountService']['getBalanceAtBlockTimestamp'](
         CONTRACT_ID_1,
         transactionsInBlockTimestamp,
-        Number(`${timestamp1}.060890950`),
+        `${timestamp1}.060890950`,
       );
-      // Transactions up to the block timestamp.to timestamp will be subsctracted from the current balance to get the block's balance.
+      // Only transactions strictly after timestamp.to are subtracted from the current balance.
       expect(resultingUpdate).to.equal(BigInt(150));
     });
 
@@ -864,9 +920,9 @@ describe('@ethGetBalance using MirrorNode', async function () {
       const resultingUpdate = ethImpl['accountService']['getBalanceAtBlockTimestamp'](
         CONTRACT_ID_1,
         transactionsInBlockTimestamp,
-        Number(`${timestamp1}.060890950`),
+        `${timestamp1}.060890950`,
       );
-      // Transactions up to the block timestamp.to timestamp will be subsctracted from the current balance to get the block's balance.
+      // Only transactions strictly after timestamp.to are subtracted from the current balance.
       expect(resultingUpdate).to.equal(BigInt(-150));
     });
 
@@ -879,9 +935,9 @@ describe('@ethGetBalance using MirrorNode', async function () {
       const resultingUpdate = ethImpl['accountService']['getBalanceAtBlockTimestamp'](
         CONTRACT_ID_1,
         transactionsInBlockTimestamp,
-        Number(`${timestamp1}.060890950`),
+        `${timestamp1}.060890950`,
       );
-      // Transactions up to the block timestamp.to timestamp will be subsctracted from the current balance to get the block's balance.
+      // Only transactions strictly after timestamp.to are subtracted from the current balance.
       expect(resultingUpdate).to.equal(BigInt(50));
     });
 
@@ -895,9 +951,9 @@ describe('@ethGetBalance using MirrorNode', async function () {
       const resultingUpdate = ethImpl['accountService']['getBalanceAtBlockTimestamp'](
         CONTRACT_ID_1,
         transactionsInBlockTimestamp,
-        Number(`${timestamp1}.060890950`),
+        `${timestamp1}.060890950`,
       );
-      // Transactions up to the block timestamp.to timestamp will be subsctracted from the current balance to get the block's balance.
+      // Only transactions strictly after timestamp.to are subtracted from the current balance.
       expect(resultingUpdate).to.equal(BigInt(70));
     });
   });
