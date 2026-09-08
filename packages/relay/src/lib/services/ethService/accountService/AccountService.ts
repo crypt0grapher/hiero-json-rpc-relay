@@ -304,18 +304,85 @@ export class AccountService implements IAccountService {
    * @param nextPage
    * @param block
    * @param requestDetails
+   * @param accountId Canonical account returned by the initial account lookup.
+   * @param requestedAccount Original address; pagination may retain its EVM alias.
    * @private
    */
-  private async getPagedTransactions(nextPage: string, block, requestDetails: RequestDetails) {
-    let pagedTransactions = [];
-    // if we have a pagination link that falls within the block.timestamp.to, we need to paginate to get the transactions for the block.timestamp.to
-    const nextPageParams = new URLSearchParams(nextPage.split('?')[1]);
-    const nextPageTimeMarker = nextPageParams.get('timestamp');
-    // if nextPageTimeMarker is greater than the block.timestamp.to, then we need to paginate to get the transactions for the block.timestamp.to
-    if (nextPageTimeMarker && nextPageTimeMarker?.split(':')[1] >= block.timestamp.to) {
-      pagedTransactions = await this.mirrorNodeClient.getAccountPaginated(nextPage, requestDetails);
+  private async getPagedTransactions(
+    nextPage: string,
+    block,
+    requestDetails: RequestDetails,
+    accountId: string,
+    requestedAccount = accountId,
+  ) {
+    const pagedTransactions: any[] = [];
+    const cutoff = this.consensusTimestampToNanoseconds(block.timestamp.to);
+    const allowedAccounts = new Set([accountId.toLowerCase(), requestedAccount.toLowerCase()]);
+    let next: string | null = nextPage;
+    let pages = 0;
+    let previous: { timestamp: bigint; inclusive: boolean } | undefined;
+
+    while (next !== null) {
+      // Only account-relative descending cursors are valid here. Never follow
+      // an arbitrary URL or silently truncate history on an ambiguous cursor.
+      const match = /^\/api\/v1\/accounts\/([^/?#]+)\?([^#]+)$/.exec(next);
+      if (!match || !allowedAccounts.has(match[1].toLowerCase())) {
+        throw new Error('Invalid historical balance pagination account');
+      }
+      const params = new URLSearchParams(match[2]);
+      const markers = params.getAll('timestamp');
+      const limits = params.getAll('limit');
+      const orders = params.getAll('order');
+      if (
+        markers.length !== 1 ||
+        limits.length !== 1 ||
+        limits[0] !== String(constants.MIRROR_NODE_QUERY_LIMIT) ||
+        orders.length > 1 ||
+        (orders.length === 1 && orders[0] !== 'desc') ||
+        [...params.keys()].some((key) => !['timestamp', 'limit', 'order'].includes(key))
+      ) {
+        throw new Error('Invalid historical balance pagination query');
+      }
+      const marker = /^(lt|lte):(.+)$/.exec(markers[0]);
+      if (!marker) {
+        throw new Error('Invalid historical balance pagination timestamp');
+      }
+      const timestamp = this.consensusTimestampToNanoseconds(marker[2]);
+      const inclusive = marker[1] === 'lte';
+      if (
+        previous &&
+        (timestamp > previous.timestamp || (timestamp === previous.timestamp && (!previous.inclusive || inclusive)))
+      ) {
+        throw new Error('Nonprogressing historical balance pagination cursor');
+      }
+      // The block end is inclusive: no transaction at or below it is rewound.
+      // Check completion before the cap, without requesting irrelevant history.
+      if (timestamp <= cutoff) {
+        break;
+      }
+      if (pages >= constants.MAX_MIRROR_NODE_PAGINATION) {
+        throw predefined.PAGINATION_MAX(constants.MAX_MIRROR_NODE_PAGINATION);
+      }
+      const page = await this.mirrorNodeClient.getAccount(match[1], requestDetails, {
+        limit: constants.MIRROR_NODE_QUERY_LIMIT,
+        transactions: true,
+        timestamp: markers[0],
+      });
+      if (
+        !page ||
+        page.account !== accountId ||
+        !Array.isArray(page.transactions) ||
+        page.transactions.length > constants.MIRROR_NODE_QUERY_LIMIT ||
+        !page.links ||
+        (page.links.next !== null && typeof page.links.next !== 'string')
+      ) {
+        throw new Error('Invalid historical balance pagination response');
+      }
+      pagedTransactions.push(...page.transactions);
+      pages++;
+      previous = { timestamp, inclusive };
+      next = page.links.next;
     }
-    // if nextPageTimeMarker is less than the block.timestamp.to, then just run the getBalanceAtBlockTimestamp function in this case as well.
 
     return pagedTransactions;
   }
@@ -363,7 +430,7 @@ export class AccountService implements IAccountService {
         const nextPage: string = mirrorAccount.links.next;
         if (nextPage) {
           mirrorAccount.transactions = mirrorAccount.transactions.concat(
-            await this.getPagedTransactions(nextPage, block, requestDetails),
+            await this.getPagedTransactions(nextPage, block, requestDetails, mirrorAccount.account, account),
           );
         }
 
@@ -456,6 +523,14 @@ export class AccountService implements IAccountService {
     throw predefined.COULD_NOT_RETRIEVE_LATEST_BLOCK;
   }
 
+  private consensusTimestampToNanoseconds(timestamp: string): bigint {
+    const match = typeof timestamp === 'string' ? /^(\d{1,10})(?:\.(\d{1,9}))?$/.exec(timestamp) : null;
+    if (!match) {
+      throw new Error('Invalid consensus timestamp');
+    }
+    return BigInt(match[1]) * BigInt(1_000_000_000) + BigInt((match[2] ?? '').padEnd(9, '0'));
+  }
+
   /**
    * Sums transfers strictly after the block's inclusive consensus end so they can be removed from the current balance.
    * @param account
@@ -464,18 +539,11 @@ export class AccountService implements IAccountService {
    * @private
    */
   private getBalanceAtBlockTimestamp(account: string, transactions: any[], blockTimestamp: string): bigint {
-    const toNanoseconds = (timestamp: string): bigint => {
-      const match = typeof timestamp === 'string' ? /^(\d{1,10})(?:\.(\d{1,9}))?$/.exec(timestamp) : null;
-      if (!match) {
-        throw new Error('Invalid consensus timestamp');
-      }
-      return BigInt(match[1]) * BigInt(1_000_000_000) + BigInt((match[2] ?? '').padEnd(9, '0'));
-    };
-    const blockTimestampNs = toNanoseconds(blockTimestamp);
+    const blockTimestampNs = this.consensusTimestampToNanoseconds(blockTimestamp);
 
     return transactions
       .filter((transaction) => {
-        return toNanoseconds(transaction.consensus_timestamp) > blockTimestampNs;
+        return this.consensusTimestampToNanoseconds(transaction.consensus_timestamp) > blockTimestampNs;
       })
       .flatMap((transaction) => {
         return transaction.transfers.filter((transfer) => {

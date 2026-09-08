@@ -827,6 +827,46 @@ describe('@ethGetBalance using MirrorNode', async function () {
       );
     });
 
+    it('keeps exact large balances while stopping before a long irrelevant account-history tail', async () => {
+      const olderCursor = `/api/v1/accounts/${CONTRACT_ADDRESS_1}?limit=100&timestamp=lt:${blockTimestamp}`;
+      restMock
+        .onGet(accountUrl)
+        .reply(200, accountResponse([transaction(['9007199254740993'], '1651560901.060890950')], nextPage));
+      restMock
+        .onGet(nextPage.replace('/api/v1/', ''))
+        .reply(
+          200,
+          accountResponse(
+            [
+              transaction(['-9007199254740995', '7']),
+              transaction(['9007199254740993'], blockTimestamp),
+              transaction(['-9007199254740993'], '1651560900.060890949'),
+            ],
+            olderCursor,
+          ),
+        );
+      // This older tail would exceed the generic pager's cap if it were followed.
+      for (let index = 0; index <= constants.MAX_MIRROR_NODE_PAGINATION; index++) {
+        const cursor =
+          index === 0
+            ? olderCursor
+            : `/api/v1/accounts/${CONTRACT_ADDRESS_1}?limit=100&timestamp=lt:1651560899.${900000000 - index}`;
+        const following = `/api/v1/accounts/${CONTRACT_ADDRESS_1}?limit=100&timestamp=lt:1651560899.${899999999 - index}`;
+        restMock
+          .onGet(cursor.replace('/api/v1/', ''))
+          .reply(200, accountResponse([transaction(['1'], `1651560899.${899999999 - index}`)], following));
+      }
+
+      expect(await ethImpl.getBalance(CONTRACT_ADDRESS_1, '0x2', requestDetails)).to.equal(
+        numberTo0x((BigInt(observedBalance) - BigInt(5)) * TINYBAR_TO_WEIBAR_COEF_BIGINT),
+      );
+      const accountRequests = restMock.history.get.filter((request) => request.url?.startsWith('accounts/'));
+      expect(accountRequests.map((request) => request.url)).to.deep.equal([
+        accountUrl,
+        nextPage.replace('/api/v1/', ''),
+      ]);
+    });
+
     it('returns bigint zero for an empty transfer history and preserves small Number balances', async () => {
       expect(ethImpl['accountService']['getBalanceAtBlockTimestamp'](CONTRACT_ID_1, [], blockTimestamp)).to.equal(
         BigInt(0),
@@ -836,6 +876,207 @@ describe('@ethGetBalance using MirrorNode', async function () {
         numberTo0x(BigInt(123) * TINYBAR_TO_WEIBAR_COEF_BIGINT),
       );
     });
+  });
+
+  describe('cutoff-aware recent historical account pagination', () => {
+    const cutoff = '1788825000.123456789';
+    const accountService = ethImpl['accountService'];
+    const client = accountService['mirrorNodeClient'];
+    const link = (timestamp: string, operator = 'lt', account = CONTRACT_ID_1) =>
+      `/api/v1/accounts/${account}?limit=100&timestamp=${operator}:${timestamp}`;
+    const page = (timestamp: string, next: string | null = null, account = CONTRACT_ID_1) => ({
+      account,
+      transactions: [{ consensus_timestamp: timestamp, transfers: [] }],
+      links: { next },
+    });
+    const paginate = (next: string, timestamp = cutoff) =>
+      accountService['getPagedTransactions'](next, { timestamp: { to: timestamp } }, requestDetails, CONTRACT_ID_1);
+    let getAccount: sinon.SinonStub;
+
+    beforeEach(() => {
+      getAccount = sinon.stub(client, 'getAccount');
+    });
+
+    afterEach(() => {
+      getAccount.restore();
+    });
+
+    for (const operator of ['lt', 'lte']) {
+      for (const timestamp of ['1788825000.123456788', cutoff]) {
+        it(`does not fetch ${operator}:${timestamp} at or below the inclusive cutoff`, async () => {
+          expect(await paginate(link(timestamp, operator))).to.deep.equal([]);
+          expect(getAccount.callCount).to.equal(0);
+        });
+      }
+
+      it(`fetches a ${operator} cursor one nanosecond after the cutoff`, async () => {
+        getAccount.resolves(page(cutoff));
+        expect(await paginate(link('1788825000.123456790', operator))).to.have.length(1);
+        expect(getAccount.callCount).to.equal(1);
+      });
+    }
+
+    it('normalizes equivalent fractional cursor and cutoff timestamps exactly', async () => {
+      expect(await paginate(link('1788825000.1'), '1788825000.100000000')).to.deep.equal([]);
+      expect(await paginate(link('1788825000.100000000'), '1788825000.1')).to.deep.equal([]);
+      expect(getAccount.callCount).to.equal(0);
+      getAccount.resolves(page('1788825000.100000000'));
+      expect(await paginate(link('1788825000.100000001'), '1788825000.1')).to.have.length(1);
+      expect(getAccount.callCount).to.equal(1);
+    });
+
+    it('stops after reaching the cutoff even when more than twenty older pages are advertised', async () => {
+      const olderPages = Array.from({ length: constants.MAX_MIRROR_NODE_PAGINATION + 5 }, (_, index) =>
+        page(`1788824999.${String(900000000 - index).padStart(9, '0')}`, link(`1788824999.${900000000 - index}`)),
+      );
+      getAccount.onCall(0).resolves(page('1788825000.123456790', link('1788825000.123456788')));
+      olderPages.forEach((response, index) => getAccount.onCall(index + 1).resolves(response));
+      const result = await paginate(link('1788825000.123456791'));
+      expect(result).to.have.length(1);
+      expect(getAccount.callCount).to.equal(1);
+    });
+
+    for (const terminal of [false, true]) {
+      it(`handles exactly twenty additional pages with ${terminal ? 'a terminal page' : 'a cutoff-proven stop'}`, async () => {
+        for (let index = 0; index < constants.MAX_MIRROR_NODE_PAGINATION; index++) {
+          const timestamp = `1788825000.${900000000 - index}`;
+          const next =
+            index === constants.MAX_MIRROR_NODE_PAGINATION - 1 ? (terminal ? null : link(cutoff)) : link(timestamp);
+          getAccount.onCall(index).resolves(page(timestamp, next));
+        }
+        expect(await paginate(link('1788825000.900000001'))).to.have.length(constants.MAX_MIRROR_NODE_PAGINATION);
+        expect(getAccount.callCount).to.equal(constants.MAX_MIRROR_NODE_PAGINATION);
+      });
+    }
+
+    it('fails closed at the page cap when more relevant transactions are still required', async () => {
+      for (let index = 0; index <= constants.MAX_MIRROR_NODE_PAGINATION; index++) {
+        const timestamp = `1788825000.${900000000 - index}`;
+        getAccount.onCall(index).resolves(page(timestamp, link(timestamp)));
+      }
+      await expect(paginate(link('1788825000.900000001'))).to.be.rejectedWith(
+        `Exceeded maximum mirror node pagination count: ${constants.MAX_MIRROR_NODE_PAGINATION}`,
+      );
+      expect(getAccount.callCount).to.equal(constants.MAX_MIRROR_NODE_PAGINATION);
+    });
+
+    it('allows the descending lte-to-lt tightening at the same nanosecond once', async () => {
+      const timestamp = '1788825000.900000000';
+      getAccount.onCall(0).resolves(page(timestamp, link(timestamp)));
+      getAccount.onCall(1).resolves(page('1788825000.899999999'));
+      expect(await paginate(link(timestamp, 'lte'))).to.have.length(2);
+      expect(getAccount.callCount).to.equal(2);
+    });
+
+    for (const next of [
+      link('1788825000.900000000'),
+      link('1788825000.9'),
+      link('1788825000.900000000', 'lte'),
+      link('1788825000.900000001'),
+    ]) {
+      it(`rejects a repeated, relaxed or ascending continuation ${next}`, async () => {
+        getAccount.resolves(page('1788825000.899999999', next));
+        await expect(paginate(link('1788825000.900000000'))).to.be.rejected;
+        expect(getAccount.callCount).to.equal(1);
+      });
+    }
+
+    it('rejects a repeated cursor after one equal-timestamp lte-to-lt tightening', async () => {
+      const timestamp = '1788825000.900000000';
+      getAccount.onCall(0).resolves(page(timestamp, link(timestamp)));
+      getAccount.onCall(1).resolves(page('1788825000.899999999', link(timestamp)));
+      await expect(paginate(link(timestamp, 'lte'))).to.be.rejected;
+      expect(getAccount.callCount).to.equal(2);
+    });
+
+    for (const next of [
+      `/api/v1/accounts/${CONTRACT_ID_1}?limit=100`,
+      link('not-a-timestamp'),
+      link('1788825000.1234567890'),
+      link('1788825001', 'gt'),
+      `${link('1788825001')}&timestamp=lt:1788825000`,
+      `${link('1788825001')}&order=asc`,
+    ]) {
+      it(`rejects an invalid or ambiguous first cursor ${next}`, async () => {
+        await expect(paginate(next)).to.be.rejected;
+        expect(getAccount.callCount).to.equal(0);
+      });
+
+      it(`rejects an invalid or ambiguous later cursor ${next}`, async () => {
+        getAccount.resolves(page('1788825001.000000000', next));
+        await expect(paginate(link('1788825002'))).to.be.rejected;
+        expect(getAccount.callCount).to.equal(1);
+      });
+    }
+
+    it('rejects a cursor that switches away from the original account', async () => {
+      getAccount.resolves(page('1788825000.800000000', link('1788825000.800000000', 'lt', '0.0.98')));
+      await expect(paginate(link('1788825000.900000000'))).to.be.rejected;
+      expect(getAccount.callCount).to.equal(1);
+    });
+
+    it('rejects an initial cursor for an unrelated account before making a request', async () => {
+      await expect(paginate(link('1788825000.900000000', 'lt', '0.0.98'))).to.be.rejected;
+      expect(getAccount.callCount).to.equal(0);
+    });
+
+    it('accepts the originally requested EVM alias while checking the canonical response account', async () => {
+      getAccount.resolves(page('1788825000.800000000'));
+      expect(
+        await accountService['getPagedTransactions'](
+          link('1788825000.900000000', 'lt', CONTRACT_ADDRESS_1),
+          { timestamp: { to: cutoff } },
+          requestDetails,
+          CONTRACT_ID_1,
+          CONTRACT_ADDRESS_1,
+        ),
+      ).to.have.length(1);
+      expect(getAccount.callCount).to.equal(1);
+    });
+
+    it('rejects a page whose canonical account differs from the original response account', async () => {
+      getAccount.resolves(page('1788825000.800000000', null, '0.0.98'));
+      await expect(paginate(link('1788825000.900000000'))).to.be.rejected;
+      expect(getAccount.callCount).to.equal(1);
+    });
+
+    it('continues through an empty page with a strictly decreasing cursor', async () => {
+      getAccount.onCall(0).resolves({
+        account: CONTRACT_ID_1,
+        transactions: [],
+        links: { next: link('1788825000.800000000') },
+      });
+      getAccount.onCall(1).resolves(page('1788825000.700000000'));
+      expect(await paginate(link('1788825000.900000000'))).to.have.length(1);
+      expect(getAccount.callCount).to.equal(2);
+    });
+
+    it('accepts an empty terminal page', async () => {
+      getAccount.resolves({ account: CONTRACT_ID_1, transactions: [], links: { next: null } });
+      expect(await paginate(link('1788825000.900000000'))).to.deep.equal([]);
+      expect(getAccount.callCount).to.equal(1);
+    });
+
+    it('rejects an empty page with a repeated cursor', async () => {
+      const cursor = link('1788825000.900000000');
+      getAccount.resolves({ account: CONTRACT_ID_1, transactions: [], links: { next: cursor } });
+      await expect(paginate(cursor)).to.be.rejected;
+      expect(getAccount.callCount).to.equal(1);
+    });
+
+    for (const response of [
+      null,
+      { account: CONTRACT_ID_1, transactions: null, links: { next: null } },
+      { account: CONTRACT_ID_1, transactions: [], links: {} },
+      { account: CONTRACT_ID_1, transactions: [], links: { next: 123 } },
+      { account: CONTRACT_ID_1, transactions: Array(101).fill({ transfers: [] }), links: { next: null } },
+    ]) {
+      it(`rejects a malformed or oversized account page ${JSON.stringify(response)?.slice(0, 100)}`, async () => {
+        getAccount.resolves(response);
+        await expect(paginate(link('1788825000.900000000'))).to.be.rejected;
+        expect(getAccount.callCount).to.equal(1);
+      });
+    }
   });
 
   describe('inclusive recent historical block boundary', () => {
