@@ -1,0 +1,54 @@
+# Ask fra-rpc1 to fetch this repository and fast-forward its development checkout.
+#
+# fra-rpc1 is the development host where the Onyx Megaboss (the orchestrator
+# session) works. The SSH key in DEV_SYNC_SSH_KEY can run exactly one command
+# there: the dev-sync entry script (crypt0grapher/onyx-mainnet,
+# scripts/dev-sync/ci-entry.sh), which fetches and fast-forwards, and never
+# stashes, resets or switches a checkout. Nothing in production is touched.
+#
+# A cron poller on fra-rpc1 does the same once a minute, so this workflow only
+# makes the pull immediate. Without the secrets it is a no-op.
+name: dev-sync-fra-rpc1
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: dev-sync-fra-rpc1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pull:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.deleted == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Pull on fra-rpc1
+        shell: bash
+        env:
+          SYNC_HOST: ${{ secrets.DEV_SYNC_HOST }}
+          SYNC_PORT: ${{ secrets.DEV_SYNC_PORT }}
+          SYNC_USER: ${{ secrets.DEV_SYNC_USER }}
+          SYNC_KEY: ${{ secrets.DEV_SYNC_SSH_KEY }}
+          SYNC_KNOWN_HOSTS: ${{ secrets.DEV_SYNC_KNOWN_HOSTS }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SYNC_HOST}" || -z "${SYNC_KEY}" || -z "${SYNC_KNOWN_HOSTS}" ]]; then
+            echo "::notice::dev-sync secrets are not set here; the poller on fra-rpc1 covers this push within a minute"
+            exit 0
+          fi
+          umask 077
+          d="$(mktemp -d)"
+          printf '%s\n' "${SYNC_KEY}" > "${d}/key"
+          printf '%s\n' "${SYNC_KNOWN_HOSTS}" > "${d}/known_hosts"
+          ssh -i "${d}/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="${d}/known_hosts" \
+              -o ConnectTimeout=20 -p "${SYNC_PORT:-22}" "${SYNC_USER:-ubuntu}@${SYNC_HOST}" \
+              "sync ${REPO} ${BRANCH} ${SHA}"
